@@ -39,6 +39,8 @@
 			end
 		end
 
+		jcms.mapgen_Wait( 0.1 )
+
 		for attempt = 1, 20 do
 			local area = jcms.util_ChooseByWeight(midAreaWeights)
 			if not area then break end
@@ -55,6 +57,8 @@
 					break
 				end
 			end
+
+			jcms.mapgen_Wait( 0.1 + (attempt/20) * 0.8 )
 		end
 		
 		if not accepted then
@@ -120,6 +124,8 @@
 			local track = jcms.mapgen_PayloadGenPath()
 			missionData.track = track
 			missionData.trackLength = 0
+
+			jcms.mapgen_Wait( 0.95 )
 			
 			for i,n in ipairs(track) do
 				missionData.trackLength = missionData.trackLength + n.distance
@@ -167,7 +173,7 @@
 						local navPos = ent:GetPos()
 						navPos:Add( ang1:Forward() * math.random(120, 200) )
 
-						local newArea = navmesh.GetNearestNavArea(navPos, false, 250, true, true)
+						local newArea = navmesh.GetNearestNavArea(navPos, false, 250, true, true) or area
 
 						--Puts us at the edge of whichever area we're at
 						local dir = math.random(0, 3)
@@ -213,6 +219,8 @@
 			payload:Spawn()
 			payload.MaxSpeed = missionData.trackLength / ((60 * 3.5) * jcms.runprogress_GetDifficulty()) -- 3.5 minutes to reach the end (difficulty scaled)
 			missionData.payload = payload
+
+			jcms.mapgen_Wait( 1 )
 
 			jcms.mapgen_PlaceNaturals( jcms.mapgen_AdjustCountForMapSize(11) )
 			jcms.mapgen_PlaceEncounters()

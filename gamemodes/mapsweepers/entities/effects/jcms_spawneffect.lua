@@ -27,6 +27,7 @@ EFFECT.RenderGroup = RENDERGROUP_TRANSLUCENT
 
 function EFFECT:Init( data )
 	self.color = jcms.util_ColorFromInteger(data:GetColor())
+	self.colorCached = Color(self.color:Unpack())
 	self.alphaout = 1
 
 	if data:GetFlags() == 1 then -- originates from a portal
@@ -41,10 +42,13 @@ function EFFECT:Init( data )
 		self.fadeinSpeed = math.random(5, 23)
 		
 		self:EmitSound("ambient/fire/ignite.wav", 75, 200)
+		if self.scale > 0.5 then
+			self.emitter = ParticleEmitter(self.entpos)
+		end
 	elseif data:GetFlags() == 0 or data:GetFlags() == 2 or data:GetFlags() == 3 then -- 0: appear, 2: disappear 3: disappear (ragdoll)
 		self.isPortal = false
 		self.ent = data:GetEntity()
-		self.entpos = IsValid(self.ent) and self.ent:WorldSpaceCenter()
+		self.entpos = IsValid(self.ent) and self.ent:WorldSpaceCenter() or jcms.vectorOrigin
 		self.t = 0
 		
 		self.tout = 3
@@ -60,6 +64,18 @@ function EFFECT:Init( data )
 		end
 		
 		self:EmitSound("ambient/fire/mtov_flame2.wav", 75, 160)
+	end
+	
+	local ourPos = (self.origin or self.entpos) + Vector(0,0,5)
+	if jcms.EyePos_lowAccuracy:DistToSqr(ourPos) > 400^2 then
+		local tr = util.TraceLine({
+			start = ourPos,
+			endpos = jcms.EyePos_lowAccuracy,
+			mask = MASK_VISIBLE
+		})
+		self.visibleAtStart = not tr.Hit
+	else
+		self.visibleAtStart = true
 	end
 end
 
@@ -112,6 +128,11 @@ function EFFECT:Think()
 		if not selfTbl.isPortal and IsValid(selfTbl.ent) then
 			selfTbl.ent.RenderOverride = selfTbl.entRenderOverride
 		end
+
+		if selfTbl.emitter then
+			selfTbl.emitter:Finish()
+		end
+
 		return false
 	end
 end
@@ -121,44 +142,91 @@ function EFFECT:Render()
 	if selfTbl.isPortal and selfTbl.t <= 1 then
 		local dist = jcms.EyePos_lowAccuracy:DistToSqr(self:WorldSpaceCenter())
 
+		local clr = selfTbl.colorCached
+
+		local lodLevel = dist < (1000*selfTbl.scale)^2 and 0 or dist < (2500*selfTbl.scale)^2 and 1 or 2
 		if selfTbl.points then
-			local f = selfTbl.fadein * selfTbl.scale
-			local color_white_alpha = ColorAlpha(color_white, selfTbl.alphaout*255)
-			render.SetMaterial(selfTbl.MatBeam)
-	
-			local n = #selfTbl.points
-			render.StartBeam(n)
-			for i, point in ipairs(selfTbl.points) do
-				render.AddBeam(point, math.Remap(i, 1, n, 7, 8*selfTbl.scale), math.Remap(i, 1, n, 0, 1), ColorAlpha(selfTbl.color, selfTbl.alphaout*255/n*i))
+
+			if lodLevel == 0 and selfTbl.visibleAtStart then
+				if IsValid(selfTbl.emitter) and math.random() < selfTbl.alphaout and FrameTime() > 0 then
+					local p = selfTbl.emitter:Add("Effects/blueflare1", selfTbl.entpos)
+					if p then
+						local vec = VectorRand()
+						vec:Normalize()
+						vec:Mul( math.Rand(16, 32) )
+						vec:Mul(selfTbl.scale)
+						p:SetVelocity(vec)
+						
+						vec:SetUnpacked(math.random()-0.5, math.random()-0.5, math.random()-0.5)
+						vec:Normalize()
+						vec:Mul( math.Rand(64, 128) )
+						vec:Mul(selfTbl.scale)
+						p:SetGravity(VectorRand(-32, 32))
+		
+						local size = math.Rand(0.2, math.max(4, selfTbl.scale*2))
+						p:SetStartSize(size*size)
+						p:SetEndSize(0)
+						p:SetStartLength(size*size) 
+						p:SetEndLength(size*size*1.25)
+						p:SetDieTime(0.5 + math.random()*selfTbl.scale)
+		
+						local r,g,b = selfTbl.color:Unpack()
+						local whiteFactor = math.Clamp( (2 + selfTbl.t)/2, 0, 1)
+						r = Lerp(whiteFactor, r, 255)
+						g = Lerp(whiteFactor, g, 255)
+						b = Lerp(whiteFactor, b, 255)
+						p:SetColor(r,g,b)
+					end
+				end
 			end
-			render.EndBeam()
+
+			render.SetMaterial(selfTbl.MatBeam)
+			
+			if lodLevel == 0 or (lodLevel == 1 and selfTbl.alphaout > 0.5) then
+				local n = #selfTbl.points
+				render.StartBeam(n)
+				for i, point in ipairs(selfTbl.points) do
+					clr:SetUnpacked(selfTbl.color:Unpack())
+					clr.a = selfTbl.alphaout * 255 / n*i
+					render.AddBeam(point, math.Remap(i, 1, n, 7, 8*selfTbl.scale), math.Remap(i, 1, n, 0, 1), clr)
+				end
+				render.EndBeam()
+			else
+				clr:SetUnpacked(selfTbl.color:Unpack())
+			end
 
 			local center = selfTbl.entpos
-			render.SetMaterial(selfTbl.MatGlow)
-			local color_alpha = ColorAlpha(selfTbl.color, selfTbl.alphaout*255)
-
+			
 			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
-				if dist < 1000^2 then
-					render.DrawSprite(center, f*(128 + math.random()*16), f*(48 + math.random()*4), color_alpha)
-					render.DrawSprite(center, f*(64 + math.random()*6), f*(72 + math.random()*18), color_alpha)
-					render.DrawSprite(center, f*(32 + math.random()*8), f*(32 + math.random()*8), color_white_alpha)
+				render.SetMaterial(selfTbl.MatGlow)
+				local f = selfTbl.fadein * selfTbl.scale
+
+				if lodLevel <= 1 then
+					clr.a = selfTbl.alphaout*255
 				end
 
-				if selfTbl.alphaout > 0.5 and dist < 2000^2 then
-					render.SetMaterial(selfTbl.MatLight)
-					render.DrawSprite(center, 72 + math.random()*32, 72 + math.random()*32, color_white_alpha)
+				if lodLevel == 0 then
+					render.DrawSprite(center, f*(128 + math.random()*16), f*(48 + math.random()*4), clr)
 				end
+
+				if lodLevel <= 1 then
+					render.DrawSprite(center, f*(64 + math.random()*6), f*(72 + math.random()*18), clr)
+				end
+
+				clr:SetUnpacked(255, 255, 255, selfTbl.alphaout*255)
+				render.DrawSprite(center, f*(32 + math.random()*8), f*(32 + math.random()*8), clr)
 			render.OverrideBlend(false)
 			render.SetBlend(1)
 		end
 	end
 end
 
+local dn = -jcms.vectorUp
 function EFFECT:RenderEntity()
 	if not IsValid(self) then
 		return
 	end
-
+	
 	local effect = self.jcms_spawneffect
 	if not IsValid(effect) then 
 		self.RenderOverride = nil 
@@ -166,10 +234,6 @@ function EFFECT:RenderEntity()
 		self:DrawModel()
 		return 
 	end
-
-
-	local up = Vector(0,0,1)
-	local dn = Vector(0,0,-1)
 
 	local mins, maxs
 	if effect.useCollisionBounds then --needed to work with ragdolls
@@ -179,6 +243,7 @@ function EFFECT:RenderEntity()
 	else
 		mins, maxs = self:GetModelRenderBounds()
 	end
+	
 	local mypos = self:GetPos()
 	mins:Add(mypos)
 	maxs:Add(mypos)
@@ -187,11 +252,13 @@ function EFFECT:RenderEntity()
 
 	local time = effect.reverse and math.max(0, 2-effect.t) or effect.t
 
-	local vbound = LerpVector(time-1 < 1 and math.ease.InOutCubic(math.Clamp(time-1, 0, 1)) or time-1, mins, maxs)
-	local vbound2 = LerpVector(time < 1 and math.ease.InOutCubic(math.Clamp(math.sqrt(time), 0, 1)) or time, mins, maxs)
+	local modelIn = time-1 < 1 and math.ease.InOutCubic(math.Clamp(time-1, 0, 1)) or time-1
+	local wireIn = time < 1 and math.ease.InOutCubic(math.Clamp(math.sqrt(time), 0, 1)) or time
+	local vbound = LerpVector(modelIn, mins, maxs)
+	local vbound2 = LerpVector(wireIn, mins, maxs)
 	local old = render.EnableClipping(true)
 
-	if eyeDist < 4000^2 then
+	if eyeDist < 3000^2 then
 		if time < 2 and eyeDist < 1500^2 then
 			local centered = Vector(mypos)
 			centered.z = (time>1 and vbound or vbound2).z
@@ -200,32 +267,36 @@ function EFFECT:RenderEntity()
 			local parabolic = math.max(0,-4*(f*f)+4*f)
 			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
 				render.SetMaterial(effect.MatGlow)
-				render.DrawQuadEasy(centered, up, math.Rand(48,72)*parabolic, math.Rand(48,72)*parabolic, effect.color)
+				render.DrawQuadEasy(centered, jcms.vectorUp, math.Rand(48,72)*parabolic, math.Rand(48,72)*parabolic, effect.color)
 				render.SetMaterial(effect.MatLight)
 				render.DrawSprite(centered, 96*parabolic, 12*parabolic, effect.color)
 			render.OverrideBlend(false)
 		end
 
-		-- Model
-		render.PushCustomClipPlane(dn, dn:Dot(vbound2))
-			render.PushCustomClipPlane(up, up:Dot(vbound))
-				render.MaterialOverride(effect.MatColor)
-					local mr,mg,mb = render.GetColorModulation()
-					local mod = Lerp(time-1,128,48)
+		if effect.visibleAtStart or modelIn == 0 then
+			-- Model
+			render.PushCustomClipPlane(dn, dn:Dot(vbound2))
+				render.PushCustomClipPlane(jcms.vectorUp, jcms.vectorUp:Dot(vbound))
+					render.MaterialOverride(effect.MatColor)
+						local mr,mg,mb = render.GetColorModulation()
+						local mod = Lerp(time-1,128,48)
 
-					local cr, cg, cb = effect.color:Unpack()
-					render.SetColorModulation(cr/mod, cg/mod, cb/mod)
-					self:DrawModel()
-					render.SetColorModulation(mr,mg,mb)
-				render.MaterialOverride()
+						local cr, cg, cb = effect.color:Unpack()
+						render.SetColorModulation(cr/mod, cg/mod, cb/mod)
+						self:DrawModel()
+						render.SetColorModulation(mr,mg,mb)
+					render.MaterialOverride()
+				render.PopCustomClipPlane()
 			render.PopCustomClipPlane()
-		render.PopCustomClipPlane()
+		end
 	end
 
-	-- Overlay
-	render.PushCustomClipPlane(dn, dn:Dot(vbound))
-		self:DrawModel()
-	render.PopCustomClipPlane()
+	if modelIn > 0 then 
+		-- Overlay
+		render.PushCustomClipPlane(dn, dn:Dot(vbound))
+			self:DrawModel()
+		render.PopCustomClipPlane()
+	end
 
 	render.EnableClipping(old)
 end

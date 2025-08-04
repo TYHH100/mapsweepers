@@ -29,7 +29,8 @@ end
 jcms.terminal_themes = {
 	jcorp = { Color(64, 0, 0, 200), Color(230, 0, 0), Color(31, 114, 147) },
 	combine = { Color(0, 242, 255, 55), Color(0, 168, 229, 210), Color(215, 38, 42) },
-	rebel = { Color(32, 20, 255, 54), Color(143, 67, 229), Color(21, 224, 21) }
+	rebel = { Color(32, 20, 255, 54), Color(143, 67, 229), Color(21, 224, 21) },
+	antlion = { Color(200, 23, 17, 55), Color(255, 255, 0), Color(255, 124, 36) }
 }
 
 jcms.terminal_modeTypes = {
@@ -306,6 +307,114 @@ jcms.terminal_modeTypes = {
 		return buttonId
 	end,
 
+	gunlocker = function(ent, mx, my, w, h, modedata)
+		local locked = ent:GetNWInt("jcms_terminal_locked")
+		local class = modedata
+		local empty = class == ""
+		
+		local color_bg, color_fg, color_accent = jcms.terminal_GetColors(ent)
+
+		if ent.jcms_cachedGunClass ~= class then
+			ent.jcms_cachedGunClass = class
+			ent.jcms_cachedGunData = jcms.gunstats_GetExpensive(class)
+		end
+
+		local gundata = ent.jcms_cachedGunData
+		local gunmat = jcms.gunstats_GetMat(class)
+
+		local wx, wy, ws = 0, 128, h/2.5
+		surface.SetDrawColor(color_bg)
+		jcms.hud_DrawStripedRect(wx, wy, ws, ws, 64, -CurTime()*24)
+
+		local str1 = "#jcms.terminal_gunlocker"
+		local str2 = "TM Mafia Security - R.W.S.S. Model B"
+		local str3 = empty and "X" or (gundata and gundata.name or "#jcms.unknownbase0")
+		draw.SimpleText(str1, "jcms_hud_medium", w/2, 0, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+		draw.SimpleText(str2, "jcms_hud_small", 24, 54, color_bg, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+		
+		local font = "jcms_hud_medium"
+		surface.SetFont(font)
+		local tw, th = surface.GetTextSize(str3)
+		if tw > w - ws - 32 then
+			font = "jcms_hud_small"
+		end
+
+		local str4 = empty and "X" or (gundata and gundata.base or "???")
+		surface.SetDrawColor(color_bg)
+		surface.DrawRect(wx + ws + 16, 128 + 24, w - ws - wx - 16, 64)
+
+		local str5 = "#jcms.terminal_gunlocker_take"
+		local str6 = "#jcms.terminal_unlock"
+
+		if locked then
+			surface.SetMaterial(jcms.mat_lock)
+			surface.SetDrawColor(color_bg)
+			surface.DrawTexturedRect(wx+ws+16, wy+ws-ws/2, ws/2, ws/2)
+		end
+
+		local bx, by, bw, bh = w/2 + 64, 240, w/2 - 64, 48
+		local by2 = by + bh + 12
+		if locked then
+			surface.DrawRect(bx, by2, bw, bh)
+		else
+			bx = wx + ws + 16
+			bw = w - bx
+		end
+
+		if not empty then
+			surface.DrawRect(bx, by, bw, bh)
+		end
+		
+		cam.PushModelMatrix(getGlitchMatrix(), true)
+			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
+			draw.SimpleText(str1, "jcms_hud_medium", w/2, 0, color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+			draw.SimpleText(str2, "jcms_hud_small", 24, 54, color_accent, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+			tw, th = draw.SimpleText(str3, font, wx + ws + 24, 128, color_fg, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+			draw.SimpleText(str4, "jcms_hud_small", wx + ws + 24 + 16, 128 + th*0.84, color_accent, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+			render.OverrideBlend( false )
+			
+			if gunmat and not gunmat:IsError() then
+				surface.SetMaterial(gunmat)
+				surface.SetDrawColor(color_white)
+				surface.DrawTexturedRect(wx, wy, ws, ws)
+			else
+				draw.SimpleText("?", "jcms_hud_huge", wx + ws/2, wy + ws/2, color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			end
+
+			if locked then
+				surface.SetMaterial(jcms.mat_lock)
+				surface.SetDrawColor(color_fg)
+				surface.DrawTexturedRect(wx+16, wy+ws-16-ws/4, ws/4, ws/4)
+			end
+
+			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
+			surface.SetDrawColor(color_fg)
+			surface.DrawOutlinedRect(wx, wy, ws, ws, 4)
+
+			if not empty then
+				draw.SimpleText(str5, "jcms_hud_small", bx+bw/2, by+bh/2, locked and color_bg or color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			end
+
+			if locked then
+				draw.SimpleText(str6, "jcms_hud_small", bx+bw/2, by2+bh/2, color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			end
+
+			local btnId
+			if (not empty and not locked) and mx >= bx and my >= by and mx <= bx + bw and my <= by + bh then
+				surface.SetDrawColor(color_fg)
+				surface.DrawOutlinedRect(bx, by, bw, bh, 4)
+				btnId = 1
+			elseif locked and mx >= bx and my >= by2 and mx <= bx + bw and my <= by2 + bh then
+				surface.SetDrawColor(color_fg)
+				surface.DrawOutlinedRect(bx, by2, bw, bh, 4)
+				btnId = 2
+			end
+			render.OverrideBlend( false )
+		cam.PopModelMatrix()
+
+		return btnId
+	end,
+
 	thumper_controls = function(ent, mx, my, w, h, modedata)
 		local color_bg, color_fg, color_accent = jcms.terminal_GetColors(ent)
 		draw.SimpleText("#jcms.terminal_thumpercontrols", "jcms_hud_medium", w/2, h/2, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
@@ -470,8 +579,20 @@ jcms.terminal_modeTypes = {
 
 			local spin = 0
 			if modedata == "1" then
-				draw.SimpleText("#jcms.terminal_inactive", "jcms_hud_big", w-48, h/2, color_accent, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
-				draw.SimpleText("#jcms.terminal_nukehelp", "jcms_hud_small", w-64, h/2 + 72, color_accent, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+				if ent:GetSwpNear() then
+					draw.SimpleText("#jcms.terminal_inactive", "jcms_hud_big", w-48, h/2, color_accent, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+					draw.SimpleText("#jcms.terminal_nukehelp", "jcms_hud_small", w-64, h/2 + 72, color_accent, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+				else					
+					local str1 = "#jcms.error"
+					draw.SimpleText(str1, "jcms_hud_big", w/2, h/2, jcms.color_alert, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					draw.SimpleText(str1, "jcms_hud_big", w/2-4, h/2+4, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+					local required = math.ceil(#jcms.GetAliveSweepers() * 0.25) --duplicate across client/server which isn't good, but I don't want to make a NetworkVar just for this
+					local str2 = string.format(language.GetPhrase("jcms.terminal_nukesweeperspresent"), required)
+					draw.SimpleText(str2, "jcms_hud_small", w/2-4, h/2 + 72+4, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					draw.SimpleText(str2, "jcms_hud_small", w/2, h/2 + 72, jcms.color_alert, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+				end
 				surface.SetDrawColor(color_bg)
 
 				local bx, by, bw, bh = 46, 464, 400, 320
@@ -707,6 +828,7 @@ jcms.terminal_modeTypes = {
 				end
 
 				for weapon, cost in pairs(jcms.weapon_prices) do
+					if cost <= 0 then continue end
 					if not ent.gunStatsCache[ weapon ] then
 						ent.gunStatsCache[ weapon ] = jcms.gunstats_GetExpensive(weapon)
 					end
@@ -781,13 +903,7 @@ jcms.terminal_modeTypes = {
 						ent.weaponHoverAnims[wepclass] = ((ent.weaponHoverAnims[wepclass] or 0)*animWeight + (hovered and 1 or 0)) / (animWeight+1)
 					
 						local hov = ent.weaponHoverAnims[wepclass]
-						if not jcms.gunMats[wepclass] then
-							jcms.gunMats[wepclass] = Material(wepstats.icon or "vgui/entities/"..wepclass..".png")
-							if jcms.gunMats[wepclass]:IsError() then
-								jcms.gunMats[wepclass]  = Material("entities/"..wepclass..".png")
-							end
-						end
-						local mat = jcms.gunMats[wepclass]
+						local mat = jcms.gunstats_GetMat(wepclass)
 
 						local col = owned and color_accent or (canAfford and color_fg or color_bg)
 
@@ -851,7 +967,7 @@ jcms.terminal_modeTypes = {
 			local selectedWeapon = me:GetActiveWeapon()
 			if IsValid(selectedWeapon) then
 				local wepclass = selectedWeapon:GetClass()
-				local mat = jcms.gunMats[wepclass]
+				local mat = jcms.gunstats_GetMat(wepclass)
 				
 				if not ent.gunStatsCache[ wepclass ] then
 					ent.gunStatsCache[ wepclass ] = jcms.gunstats_GetExpensive(wepclass)
@@ -982,7 +1098,7 @@ jcms.terminal_modeTypes = {
 		-- }}}
 
 		if buttonId == 0 and hoveredWeaponClass then
-			cam.PushModelMatrix(getGlitchMatrix(8, 2), true)
+			cam.PushModelMatrix(getGlitchMatrix(), true)
 				local price = jcms.weapon_prices[hoveredWeaponClass]
 				local canAfford = me:GetNWInt("jcms_cash", 0) >= price
 				
@@ -1089,6 +1205,7 @@ jcms.terminal_modeTypes = {
 	circuit = function(ent, mx, my, w, h, modedata)
 		local color_bg, color_fg, color_accent = jcms.terminal_GetColors(ent)
 		local split = string.Split(modedata, " ")
+		if not(#split >= 3) then return end --Prevent errors if our modedata hasn't networked
 		
 		local selected = tonumber(split[4])
 		local seed = ent:EntIndex() .. split[1]
@@ -1250,6 +1367,72 @@ jcms.terminal_modeTypes = {
 			return hoverId
 		end
 	end,
+
+	jeechblock = function(ent, mx, my, w, h, modedata)
+		local color_bg, color_fg, color_accent = jcms.terminal_GetColors(ent)
+
+		local target, written = unpack( modedata:Split(" ") )
+		local str1 = "#jcms.terminal_writethisdown"
+		local str2 = tostring(target or "")
+		local str3 = tostring(written or "") .. (CurTime()%1<=0.5 and "_" or " ")
+
+		draw.SimpleText(str1, "jcms_hud_small", w/2, 0, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+		draw.SimpleText(str2, "jcms_hud_medium", w/2, 32, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+		draw.SimpleText(str3, "jcms_hud_small", w/2, 114+24, color_bg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		
+		local kb = { -- im so cool for writing this down myself
+			{ "1", "2", "3", "4", "5", "6", "7", "8", "9", "0" },
+			{ "Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "<<<" },
+			{ "A", "S", "D", "F", "G", "H", "J", "K", "L", "#jcms.confirm" },
+			{ "Z", "X", "C", "V", "B", "N", "M", "#jcms.reset" }
+		}
+
+		for i, row in ipairs(kb) do
+			local xbase = w/2-#row/2*48-12
+			for j, sym in ipairs(row) do
+				draw.SimpleText(sym, "jcms_hud_small", xbase+j*48 - (i==1 and 24 or 0), 168+i*42, color_bg, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+			end
+		end
+
+		surface.SetDrawColor(jcms.color_dark)
+
+		cam.PushModelMatrix(getGlitchMatrix(4, 0.05), true)
+		render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+			draw.SimpleText(str1, "jcms_hud_small", w/2, 0, color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+			draw.SimpleText(str2, "jcms_hud_medium", w/2, 32, color_accent, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+
+			surface.SetDrawColor(color_fg)
+			surface.DrawOutlinedRect(16, 114, w-32, 48, 3)
+			draw.SimpleText(str3, "jcms_hud_small", w/2, 114+24, color_fg, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+
+			local hovBtnIndex = -1
+			local btnIndex = 0
+			for i, row in ipairs(kb) do
+				local xbase = w/2-#row/2*48-12
+				for j, sym in ipairs(row) do
+					btnIndex = btnIndex + 1
+					local bx, by = xbase+j*48 - (i==1 and 24 or 0), 168+i*42
+					if hovBtnIndex == -1 then
+						local hovered = false
+						if #sym == 1 then
+							hovered = math.DistanceSqr(bx, by, mx, my) <= 32*32
+						else
+							local dx, dy = mx - bx, my - by
+							hovered = dx >= -8 and dx <= #sym*11 + 8 and dy >= -12 and dy <= 12
+						end
+
+						if hovered then
+							hovBtnIndex = btnIndex
+						end
+					end
+					draw.SimpleText(sym, "jcms_hud_small", bx, by, btnIndex == hovBtnIndex and color_accent or color_fg, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+				end
+			end
+		render.OverrideBlend( false )
+		cam.PopModelMatrix()
+
+		return hovBtnIndex
+	end
 }
 
 function jcms.terminal_GetCursor(pos, normal, fromPos, fromNormal)

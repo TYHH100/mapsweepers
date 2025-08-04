@@ -259,6 +259,18 @@
 			end
 		end
 
+		function jcms.director_ShouldForceSpawnNPCPlayers()
+			local d = jcms.director
+			if not(#d.npcs > jcms.cvar_softcap:GetInt()) then return false end
+
+			local cTime = CurTime()
+			for i, v in ipairs(jcms.npc_GetPlayersToRespawn()) do
+				if (d.npcPlayerSlowRespawnTimes and d.npcPlayerSlowRespawnTimes[ply] or 0) < cTime then
+					return true
+				end
+			end
+			return false
+		end
 	-- }}}
 
 	-- Swarm-related {{{
@@ -359,12 +371,10 @@
 
 						local enemyData = jcms.npc_types[ enemyType ]
 						if enemyData and enemyData.aerial then
-							
 							local nearestNode = jcms.pathfinder.getNearestNode(pos)
 							if nearestNode then 
 								pos = nearestNode.pos
 							end
-
 						end
 						
 						if type(enemyType) == "table" then
@@ -470,7 +480,7 @@
 				spawnBoss(jcms.NPC_DANGER_RAREBOSS)
 			end
 			
-			for i=1, 100 do
+			for i=1, 75 do
 				local shuffled = jcms.util_GetShuffledByWeight(validTypes)
 				
 				local spawned = false
@@ -501,7 +511,6 @@
 			local npcPlayers = jcms.npc_GetPlayersToRespawn()
 			
 			if #npcPlayers > 0 then
-				
 				for i, ply in ipairs(npcPlayers) do
 					table.insert(queue, jcms.npc_GeneratePlayerRespawnTable(ply))
 					d.npcPlayerRespawnTimes[ply] = CurTime() + 5
@@ -776,26 +785,83 @@
 	-- }}}
 
 	-- Main Methods, Thinking {{{
+		jcms.director_debrisPropNames = { --TODO: There should be a way to fade these out with internal variables instead of disintegrating them.
+			["models/gibs/manhack_gib01.mdl"] = 7.5,
+			["models/gibs/manhack_gib02.mdl"] = 7.5,
+			["models/gibs/manhack_gib03.mdl"] = 7.5,
+			["models/gibs/manhack_gib04.mdl"] = 7.5,
+			["models/gibs/manhack_gib05.mdl"] = 7.5,
+			["models/gibs/manhack_gib06.mdl"] = 7.5,
+
+			["models/gibs/antlion_gib_large_1.mdl"] = 7.5,
+			["models/gibs/antlion_gib_large_2.mdl"] = 7.5,
+			["models/gibs/antlion_gib_large_3.mdl"] = 7.5,
+			["models/gibs/antlion_gib_medium_1.mdl"] = 7.5,
+			["models/gibs/antlion_gib_medium_2.mdl"] = 7.5,
+			["models/gibs/antlion_gib_medium_3.mdl"] = 7.5,
+			["models/gibs/antlion_gib_medium_3a.mdl"] = 7.5,
+			["models/gibs/antlion_gib_small_1.mdl"] = 7.5,
+			["models/gibs/antlion_gib_small_2.mdl"] = 7.5,
+			["models/gibs/antlion_gib_small_3.mdl"] = 7.5,
+
+			["models/gibs/antlion_worker_gibs_head.mdl"] = 7.5, --The rest of the worker gibs are ragdolls.
+		}
+
 		jcms.director_debrisClasses = {
+			["helicopter_chunk"] = 60,
+			["gib"] = 7.5,
+		}
+
+		jcms.director_debrisClasses_important = {
 			["item_ammo_ar2_altfire"] = true,
 			["item_battery"] = true, --Leaving health-kits alone because they're more important. Suit batteries basically only matter to sentinel
-			["helicopter_chunk"] = true,
-			["gib"] = true,
+		}
+		
+		jcms.director_debrisFadeClasses = { --classes to fade with instead of dissolving.
+			["prop_physics"] = true,
+			["gib"] = true
 		}
 
 		function jcms.director_DebrisClear(d) --NOTE: This is primarily to reduce *render lag* rather than physics/anything like that. Most of this stuff is stationary.
+			local npcCount = #jcms.director.npcs
+			local reduce = math.max(npcCount - 60, 0) --Don't do anything until >60, then clear more aggressively with each npc after.
+
+			local impDelay = math.min(reduce, 90)
+			local impNearbyDist = math.max(600 - reduce * 5, 150)
+
 			for i, ent in ents.Iterator() do
-				if not ent:IsWeapon() and not jcms.director_debrisClasses[ent:GetClass()] then continue end --Only weapons
+				local isWeapon = ent:IsWeapon()
+				local entClass = ent:GetClass()
+				local isImportant = jcms.director_debrisClasses_important[entClass]
+				local isProp = entClass == "prop_physics"
+
+				if not (isWeapon or jcms.director_debrisClasses[entClass] or isImportant or isProp) then continue end --Only our entities
 				if IsValid(ent:GetOwner()) or ent:CreatedByMap() then continue end  --Don't kill map-entities or ones in an inventory
+				local model = ent:GetModel() 
+				if isProp and not jcms.director_debrisPropNames[model] then continue end
+
+				local dissolveDelay = (isWeapon or isImportant) and (110 - impDelay) or jcms.director_debrisClasses[entClass] or jcms.director_debrisPropNames[model]
 
 				local entTbl = ent:GetTable() 
-				entTbl.jcms_weaponDieTime = entTbl.jcms_weaponDieTime or (CurTime() + 120) --Set our timer if we don't have one
+				entTbl.jcms_weaponDieTime = entTbl.jcms_weaponDieTime or (CurTime() + dissolveDelay) --Set our timer if we don't have one
 
-				if entTbl.jcms_weaponDieTime < CurTime() or not ent:IsInWorld() then --If our time's up, (or we're outside the map? Somehow?)
-					if #jcms.GetSweepersInRange(ent:GetPos(), 600) > 0 then --Give us more if a sweeper's nearby
+				if entTbl.jcms_weaponDieTime < CurTime() or not ent:IsInWorld() then -- If our time's up, (or we're outside the map? Somehow?)
+					if (isWeapon or isImportant) and #jcms.GetSweepersInRange(ent:GetPos(), impNearbyDist) > 0 then -- Give us more if a sweeper's nearby
 						entTbl.jcms_weaponDieTime = CurTime() + 20
 					else
-						ent:Dissolve() --Clean us up
+						if jcms.director_debrisFadeClasses[entClass] then 
+							if not(ent:GetRenderFX() == kRenderFxFadeSlow) then
+								ent:SetRenderMode(RENDERMODE_TRANSCOLOR)
+								ent:SetRenderFX(kRenderFxFadeSlow)
+								timer.Simple(2.5, function() 
+									if IsValid(ent) then
+										ent:Remove()
+									end
+								end)
+							end
+						else
+							ent:Dissolve() -- Clean us up
+						end
 					end
 				end
 			end
@@ -869,12 +935,12 @@
 				end)
 
 				local ct = CurTime()
-				local respawnDelay = game.SinglePlayer() and 5 or 30
+				local respawnDelay = (game.SinglePlayer() or #jcms.GetAliveSweepers() == 0) and 5 or 30
 				local respawnInterval = 5
 				for i, ply in ipairs(deadPlayers) do
 					local timeSinceDeath = ct - (ply.jcms_lastDeathTime or 0)
 					local timeSinceRespawnAttempt = ply.jcms_lastRespawnTime and ct - ply.jcms_lastRespawnTime or respawnInterval + 1
-					local timeTabbedOut = CurTime() - ((jcms.playerAfkPings and jcms.playerAfkPings[ply]) or 0)
+					local timeTabbedOut = ply:IsBot() and 0 or (CurTime() - ((jcms.playerAfkPings and jcms.playerAfkPings[ply]) or 0))
 
 					if (timeSinceDeath >= respawnDelay) and (timeSinceRespawnAttempt >= respawnInterval) and timeTabbedOut < 20 then
 						local beacon = jcms.director_FindRespawnBeacon(false)
@@ -954,11 +1020,17 @@
 					if state == NPC_STATE_COMBAT then
 						combat = combat + 1
 					elseif not npcTbl.jcms_ignoreStraggling then
-						local npcpos = npc:WorldSpaceCenter()
-
-						local npcArea = navmesh.GetNearestNavArea(npcpos, false, 250, false)
-						if not IsValid(npcArea) or not jcms.mapgen_ValidArea(npcArea) then 
+						if not npc:IsInWorld() or npc:GetInternalVariable("startburrowed") then 
 							confirmedStraggler = true
+						end
+
+						local npcpos 
+						if not confirmedStraggler then 
+							npcpos = npc:WorldSpaceCenter()
+							local npcArea = navmesh.GetNearestNavArea(npcpos, false, 250, false)
+							if not IsValid(npcArea) or not jcms.mapgen_ValidArea(npcArea) then 
+								confirmedStraggler = true
+							end
 						end
 
 						if not confirmedStraggler then 
@@ -1155,7 +1227,7 @@
 
 			if #d.npcs > softcap then
 				d.swarmNext = missionTime + 5
-				return 
+				--return 
 			end
 
 			local missionTypeData = jcms.missions[ d.missionType ]
@@ -1238,6 +1310,28 @@
 				end
 				
 				local queue = jcms.director_MakeQueue(d, swarmCost, d.swarmDanger)
+				jcms.director_SpawnSwarm(d, queue)
+			elseif jcms.director_ShouldForceSpawnNPCPlayers() then
+				local npcPlayers = jcms.npc_GetPlayersToRespawn()
+
+				if not d.npcPlayerRespawnTimes then
+					d.npcPlayerRespawnTimes = {} -- In theory should prevent the same player from spawning in 2 different swarms
+				end
+				if not d.npcPlayerSlowRespawnTimes then --Ditto for softcap specifically. 
+					d.npcPlayerSlowRespawnTimes = {}
+				end
+
+				local queue = {}
+				for i, ply in ipairs(npcPlayers) do
+					d.npcPlayerSlowRespawnTimes[ply] = d.npcPlayerSlowRespawnTimes[ply] or CurTime()
+
+					if d.npcPlayerSlowRespawnTimes[ply] < CurTime() then
+						table.insert(queue, jcms.npc_GeneratePlayerRespawnTable(ply))
+						d.npcPlayerRespawnTimes[ply] = CurTime() + 5
+						d.npcPlayerSlowRespawnTimes[ply] = CurTime() + 30 --softcap spawn delay is 30s
+					end
+				end
+
 				jcms.director_SpawnSwarm(d, queue)
 			end
 		end
@@ -1337,7 +1431,7 @@
 		function jcms.director_Loop()
 			local d = jcms.director
 
-			if d then
+			if d and d.fullyInited then
 				if d.gameover then return end
 				local livingPlayers, deadPlayers, evacCount = jcms.director_PlayersAnalyze(d)
 				jcms.director.livingPlayers = livingPlayers
@@ -1386,7 +1480,14 @@
 		end
 
 		timer.Create("jcms_Director", 1, 0, function()
-			local s, err = pcall( jcms.director_Loop )
+
+			local s, err = xpcall( jcms.director_Loop, function(err)
+				--If we error this gets called.
+				if debug.traceback then --Wiki lists traceack as deprecated, but the non-deprecated function doesn't do what I want. This is in-case they ever remove it.
+					return err .. "\n" .. debug.traceback()
+				end
+				return err
+			end)
 
 			if not s then
 				if type(err) == "string" then

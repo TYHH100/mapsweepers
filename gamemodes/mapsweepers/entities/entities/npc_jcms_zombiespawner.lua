@@ -50,6 +50,8 @@ if SERVER then
 		self:SetBloodColor(BLOOD_COLOR_ANTLION)
 
 		self:SetAngles( Angle(math.Rand(-2, 2), math.random()*360, math.Rand(-2, 2)) )
+		
+		self:SetNWString("jcms_boss", "zombie_spawner")
 	end
 
 	function ENT:OnTakeDamage(dmgInfo)
@@ -94,6 +96,12 @@ if SERVER then
 				end
 			end)
 		end
+
+		timer.Simple(0, function()
+			if IsValid(self) then
+				self:SetNWFloat("HealthFraction", self:Health() / self:GetMaxHealth())
+			end
+		end)
 	end
 
 	function ENT:Think()

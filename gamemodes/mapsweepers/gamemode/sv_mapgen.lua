@@ -120,14 +120,21 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		if area:IsDamaging() or area:IsUnderwater() then return false end
 
 		--Are we somehow inside a solid fucking block (conflux has this issue)
-		local areaContents = bit.band(util.PointContents( area:GetCenter() ) )
+		local areaContents = util.PointContents( area:GetCenter() )
+		local areaContentsAll = areaContents
 		for i=1, 4, 1 do 
-			areaContents = bit.band( util.PointContents( area:GetCorner(i-1) ), areaContents )
+			local contents = util.PointContents( area:GetCorner(i-1) )
+			areaContents = bit.band( contents, areaContents )
+			areaContentsAll = bit.bor(contents, areaContentsAll)
 		end
 
 		--if ALL corners, and our centre are solid. Normal sane maps like construct have slanted navareas on small ledges, so we have to deal with that.
 		if bit.band(areaContents, CONTENTS_SOLID) ~= 0 then 
 			return false 
+		end
+		--If any of our points are touching a playerclip don't use it. Not reliable at all, but hopefully I'll fix that in the future.
+		if bit.band(areaContentsAll, CONTENTS_PLAYERCLIP) ~= 0 then 
+			return false
 		end
 
 		--Make sure we aren't on nodraw, because we can't reliably check if we're under a displacement due to static props.
@@ -193,6 +200,24 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			--end
 		end
 		return borderAreaWeights
+	end
+
+	function jcms.mapgen_TryReadNodeData()
+		ainReader.readNodeData()
+
+		if not ainReader.nodePositions then return end 
+		
+		local md = jcms.mapdata
+		md.nodeAreas = {}
+		for i, nodePos in ipairs(ainReader.nodePositions) do 
+			md.nodeAreas[nodePos] = jcms.mapgen_NearestArea(nodePos)
+		end
+	end
+
+	function jcms.mapgen_Wait( progress )
+		if game.SinglePlayer() then return end
+		game.GetWorld():SetNWFloat( "jcms_mapgen_progress", progress )
+		if coroutine.running() then coroutine.yield() end
 	end
 
 -- // }}
@@ -485,17 +510,10 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			ainReader.readNodeData()
 		end
 
-		if ainReader.nodePositions then  
-			md.nodeAreas = {}
-			for i, nodePos in ipairs(ainReader.nodePositions) do 
-				md.nodeAreas[nodePos] = jcms.mapgen_NearestArea(nodePos)
-			end
+		jcms.mapgen_TryReadNodeData()
 
-			if md.areaCount <= 1 then
-				md.valid = false
-			end
-		else
-			PrintMessage( HUD_PRINTTALK, "[Map Sweepers] WARNING! FAILED TO READ NODEGRAPH! MAP IS PROBABLY INCOMPATIBLE WITH NPCs")
+		if md.areaCount <= 1 then
+			md.valid = false
 		end
 	end
 
@@ -556,17 +574,22 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		local subdiv = subdivisionSize
 		local connectionDist2 = connectionDist * connectionDist
 		for i, area in ipairs(areas) do
-			local xSubdivCount = math.ceil(area:GetSizeX() / subdiv)
-			local ySubdivCount = math.ceil(area:GetSizeY() / subdiv)
+			local areaSizeX = area:GetSizeX()
+			local areaSizeY = area:GetSizeY()
+
+			local xSubdivCount = math.ceil(areaSizeX / subdiv)
+			local ySubdivCount = math.ceil(areaSizeY / subdiv)
 
 			for x=1, xSubdivCount do
 				for y=1, ySubdivCount do
 					local v = area:GetCorner(0)
-					v.x = xSubdivCount==1 and (v.x + area:GetSizeX()/2) or (v.x + subdiv * (x-1))
-					v.y = ySubdivCount==1 and (v.y + area:GetSizeY()/2) or (v.y + subdiv * (y-1))
-					v.z = area:GetZ(v)
+					local vx, vy, vz = v:Unpack() --Messy optimisation here, we still use v.z because we need the new vec pos for it to be accurate.
+					vx = xSubdivCount==1 and (vx + areaSizeX/2) or (vx + subdiv * (x-1))
+					vy = ySubdivCount==1 and (vy + areaSizeY/2) or (vy + subdiv * (y-1))
+					v:SetUnpacked(vx, vy, vz)
+					v.z = area:GetZ(v) 
 					if bit.band(util.PointContents(v), CONTENTS_SOLID) == 0 then
-						table.insert(getChunkTable(v.x, v.y, v.z), v)
+						table.insert(getChunkTable(vx, vy, v.z), v)
 					end
 				end
 			end
@@ -580,6 +603,8 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			mask = MASK_PLAYERSOLID_BRUSHONLY, 
 			output = tr_res
 		}
+		local vStart = Vector(0,0,0)
+		local vEnd = Vector(0,0,0)
 
 		local connections = {}
 		for chunkId, chunk in pairs(chunks) do
@@ -592,11 +617,16 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 						local dist2 = opt:DistToSqr(pt)
 
 						if dist2 >= (subdiv*subdiv - 16) then
-							local zDiminishDist2 = (pt.x - opt.x)^2 + (pt.y - opt.y)^2 + ((pt.z - opt.z)*0.25)^2
+							local ptx, pty, ptz = pt:Unpack()
+							local optx, opty, optz = opt:Unpack()
+
+							local zDiminishDist2 = (ptx - optx)^2 + (pty - opty)^2 + ((ptz - optz)*0.25)^2
 							
 							if zDiminishDist2 <= connectionDist2 then
-								tr_data.start = Vector( pt.x, pt.y, pt.z + subdiv/2)
-								tr_data.endpos = Vector( opt.x, opt.y, opt.z + subdiv )
+								vStart:SetUnpacked( ptx, pty, ptz + subdiv/2 )
+								vEnd:SetUnpacked( optx, opty, optz + subdiv )
+								tr_data.start = vStart
+								tr_data.endpos = vEnd
 								util.TraceLine(tr_data)
 
 								if not tr_res.Hit then
@@ -658,7 +688,8 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		for chunkId, chunk in pairs(chunks) do
 			for i, pt in ipairs(chunk) do
 				local weight = 1
-				tr_data.start = Vector( pt.x, pt.y, pt.z + 64 )
+				local px, py, pz = pt:Unpack()
+				tr_data.start = Vector( px, py, pz + 64 )
 
 				for i, tr in ipairs(jcms.mapgen_WallTraces(tr_count, tr_dist, tr_data)) do 
 					weight = math.min(weight, tr.Fraction)
@@ -1295,6 +1326,7 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			area_vectors[area] = area:GetCenter()
 			area_raisedVectors[area] = area:GetCenter() + upVec
 		end
+		jcms.mapgen_Wait( 0.05 )
 
 		for i=1, count, 1 do
 			local weightedAreas = {}
@@ -1324,6 +1356,8 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			local worked, pref = jcms.prefab_TryStamp(type, chosenArea) --We've already checked if our target area is valid, no need to check again
 			table.insert(prefabAreas, chosenArea) 
 			table.insert(prefabs, pref)
+
+			jcms.mapgen_Wait( 0.05 + (i/count)*0.95 )
 		end
 
 		return prefabs

@@ -20,11 +20,14 @@
 --]]
 DEFINE_BASECLASS("gamemode_base")
 
+include "sh_debugtools.lua"
+
 include "sh_bspReader.lua" --Data from the BSP. We probably(?) want to use this in mapgen and missions, so I put it at the top. - J
 bspReader.readLeafData()
 bspReader.readNodeData()
 bspReader.readPlaneData()
 bspReader.readPVSData()
+bspReader.readBrushData(CONTENTS_PLAYERCLIP)
 
 include "sh_ainReader.lua" --i like eating binrary numbrs- j
 ainReader.readNodeData()
@@ -162,11 +165,6 @@ end
 
 -- // }}}
 
--- // Compatibility {{{
-	local pmt = FindMetaTable("Player")
-	pmt.CheckLimit = function() return true end --This function only exists in sandbox, but some addons assume it exists always.
--- // }}
-
 -- // General {{{
 
 	-- These are areas through which turrets cannot see.
@@ -184,12 +182,13 @@ end
 			game.ConsoleCommand("ai_serverragdolls 0\n")
 		end)
 
-		jcms.mission_Randomize()
+		timer.Simple(0, function() --Needed so that our runprogress can be loaded first
+			jcms.mission_Randomize()
+		end)
 
 		team.SetColor(0, Color(180, 180, 180))
 		team.SetColor(1, Color(255, 16, 16))
 		team.SetColor(2, Color(16, 183, 255))
-
 	end)
 
 	hook.Add("PlayerSwitchFlashlight", "jcms_Flashlight", function(ply, enabled)
@@ -231,10 +230,13 @@ end
 		end
 
 		local shield = ent:GetNWInt("jcms_shield", 0)
-		if shield > 0 and bit.band(dmgType, DMG_CRUSH) == 0 then 
+		if shield > 0 and bit.band(dmgType, bit.bor(DMG_CRUSH, DMG_FALL)) == 0 and dmg:GetDamage() > 0 then 
 			ent:SetNWInt("jcms_shield", math.max(shield - 1, 0))
 			dmg:SetDamage(0)
 			return 0
+		elseif ent:IsPlayer() then
+			ent.jcms_lastDamaged = CurTime()
+			jcms.net_SendDamage(ent, dmginfo)
 		end
 
 		local swpShield = ent:GetNWInt("jcms_sweeperShield", 0)
@@ -296,10 +298,19 @@ end
 					if data.OnDealDamage then
 						data.OnDealDamage(attacker, ent, dmg, data)
 					end
+					
+					if not data.jcorp then
+						dmg:ScaleDamage(jcms.npc_GetScaledDamage(jcms.director and jcms.director.livingPlayers))
+					end
 				end
 			else
 				dmg:ScaleDamage(attacker.jcms_dmgMult or 1)
-				dmg:ScaleDamage(jcms.npc_GetScaledDamage(jcms.director and jcms.director.livingPlayers))
+				if not attacker.jcms_dontScaleDmg then
+					dmg:ScaleDamage(jcms.npc_GetScaledDamage(jcms.director and jcms.director.livingPlayers))
+				end
+				if attacker.jcms_maxScaledDmg then 
+					dmg:SetDamage( math.min(attacker.jcms_maxScaledDmg, dmg:GetDamage()) )
+				end
 			end
 			
 			if jcms.team_JCorp(ent) then
@@ -347,7 +358,7 @@ end
 			--Their default behaviour seems to be hardcoded in hl2, and messing with the damageinfo breaks it (causes them to instakill).
 			--This is a bandaid solution to that. 
 			local hp = ent:Health()
-			dmg:SetDamage( math.min(hp-1, dmg:GetDamage()) )
+			dmg:SetDamage( math.min(hp-5, dmg:GetDamage()) )
 		end
 	end)
 	
@@ -394,61 +405,40 @@ end
 		return true
 	end)
 
-	gameevent.Listen("player_activate") 
-	-- Am I missing something? Why do we even have to fucking do this? We've already
-	-- got a fucking hook for player_disconnect, that is, GM:PlayerDisconnected. Why
-	-- couldn't they do something like this here, too?
-	hook.Add("player_activate", "jcms_OnActivate", function(data)
-		local ply = Player(data.userid)
-		net.inited_players[ply] = true
-		
-		timer.Simple(1, function()
-			if IsValid(ply) then
-				jcms.net_NotifySquadChange(ply, true)
-				jcms.net_SendFogData(ply) --Currently doesn't update/assumes the fog stays static. Might cause weird behaviour on maps that edit their fog. 
-			end
-		end)
-		
-		timer.Simple(1.5, function()
-			if IsValid(ply) and not ply:IsBot() then
-				jcms.net_SendManyOrders(jcms.orders, ply)
-			end
-		end)
+	hook.Add("jcms_PlayerNetReady", "jcms_OnActivate", function(ply)
+		local sid64 = ply:SteamID64()
+		if jcms.director and jcms.director.persisting_loadout then
+			ply.jcms_lastLoadout = jcms.director.persisting_loadout[ sid64 ]
+			ply:SetNWString("jcms_desiredclass", jcms.director.persisting_class[ sid64 ] or "infantry")
+			ply:SetNWInt("jcms_cash", jcms.director.persisting_cash[ sid64 ] or jcms.runprogress_GetStartingCash(ply))
+			jcms.printf("Restoring loadout, class and cash for player " .. tostring(ply))
+		end
 
-		timer.Simple(2, function()
-			if IsValid(ply) then
-				local sid64 = ply:SteamID64()
-				
-				if jcms.director and jcms.director.persisting_loadout then
-					ply.jcms_lastLoadout = jcms.director.persisting_loadout[ sid64 ]
-					ply:SetNWString("jcms_desiredclass", jcms.director.persisting_class[ sid64 ] or "infantry")
-					ply:SetNWInt("jcms_cash", jcms.director.persisting_cash[ sid64 ] or jcms.runprogress_GetStartingCash(ply))
-					jcms.printf("Restoring loadout, class and cash for player " .. tostring(ply))
-				end
-
-				local count = 0
-				for i, ent in ipairs(ents.GetAll()) do
-					if ent.jcms_owner_sid64 == sid64 then
-						ent.jcms_owner = ply
-						ent.jcms_owner_sid64 = nil
-						count = count + 1
-					end
-				end
-				if count > 0 then
-					jcms.printf("%s joined back, %d of their owned entities have been restored", ply, count)
-				end
+		local count = 0
+		for i, ent in ents.Iterator() do
+			if ent.jcms_owner_sid64 == sid64 then
+				ent.jcms_owner = ply
+				ent.jcms_owner_sid64 = nil
+				count = count + 1
 			end
-		end)
+		end
+		if count > 0 then
+			jcms.printf("%s joined back, %d of their owned entities have been restored", ply, count)
+		end
 
-		timer.Simple(4.0, function()
-			if IsValid(ply) and not ply:IsBot() then
-				jcms.net_SendManyWeapons(jcms.weapon_prices, ply)
-			end
-		end)
+		if ply:IsBot() then return end
+		jcms.net_NotifySquadChange(ply, true)
+		jcms.net_SendFogData(ply) --Currently doesn't update/assumes the fog stays static. Might cause weird behaviour on maps that edit their fog. 
+		jcms.net_SendManyOrders(jcms.orders, ply)
+		jcms.net_SendWeaponPrices(jcms.weapon_prices, ply)
+
+		local currentObjectives = jcms.mission_GetObjectives()
+		if #currentObjectives > 0 then
+			jcms.net_ShareMissionData(currentObjectives, ply)
+		end
 	end)
 
 	hook.Add("PlayerDisconnected", "jcms_OnDisconnect", function(ply)
-		net.inited_players[ply] = false
 		jcms.net_NotifySquadChange(ply, false)
 		
 		if jcms.director then
@@ -530,7 +520,10 @@ end
 		difficulty = 0.9,
 		winstreak = 0,
 		totalWins = 0,
-		playerStartingCash = {} -- key is Steam ID 64, value is starting cash. 
+		playerStartingCash = {}, -- key is Steam ID 64, value is starting cash. 
+
+		lastMission = "",
+		lastFaction = ""
 	}
 
 	function jcms.runprogress_CalculateDifficultyFromWinstreak(winstreak, totalWins)
@@ -597,12 +590,88 @@ end
 
 	function jcms.runprogress_Reset()
 		local rp = jcms.runprogress
+
+		if not rp.highScore or rp.highScore.winstreak < rp.winstreak then
+			--Save the highest winstreak the server's had, including all runprogress data (players / winstreak / etc)
+			rp.highScore = nil
+			rp.highScore = table.Copy(rp)
+		end
+
 		rp.winstreak = 0
 		rp.difficulty = jcms.runprogress_CalculateDifficultyFromWinstreak(rp.winstreak, rp.totalWins)
 		table.Empty(jcms.runprogress.playerStartingCash)
 		game.GetWorld():SetNWInt("jcms_winstreak", rp.winstreak)
 	end
 
+	function jcms.runprogress_GetLastMissionTypes()
+		return jcms.runprogress.lastMission, jcms.runprogress.lastFaction
+	end
+
+	function jcms.runprogress_SetLastMission()
+		local rp = jcms.runprogress
+		rp.lastMission = jcms.util_GetMissionFaction()
+		rp.lastFaction = jcms.util_GetMissionType()
+	end
+
+-- // }}}
+
+-- // Friendly-Fire Tracking / other player data {{{
+	jcms.playerData = jcms.playerData or {
+		playerFFKills = {},
+		playerLastFFKill = {}
+	}
+
+
+	hook.Add("PlayerSpawn", "jcms_restorePlayerData", function(ply) 
+		local lastFFKill = jcms.playerData_lastFriendlyKill(ply)
+
+		if os.time() - lastFFKill > 60 * 60 * 4 then --If our last kill was 4h ago reset
+			jcms.playerData_SetFriendlyKills(ply, 0)
+			return
+		end
+
+		ply:SetNWInt("jcms_friendlyfire_counter", jcms.playerData_GetFriendlyKills(ply))
+	end)
+
+	function jcms.playerData_SetFriendlyKills(ply, amount)
+		local sid64 = ply:SteamID64()
+		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
+
+		jcms.playerData.playerFFKills[sid64] = amount
+		ply:SetNWInt("jcms_friendlyfire_counter", amount)
+	end
+
+	function jcms.playerData_GetFriendlyKills(ply_or_sid64)
+		local sid64 = tostring(ply_or_sid64)
+		if type(ply_or_sid64) == "Player" then
+			sid64 = ply_or_sid64:SteamID64()
+		end
+		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
+
+		return jcms.playerData.playerFFKills[sid64] or 0
+	end
+
+	function jcms.playerData_AddFriendlyKill(ply)
+		local sid64 = ply:SteamID64()
+		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
+
+		local newKills = (jcms.playerData.playerFFKills[sid64] or 0) + 1
+		jcms.playerData.playerFFKills[sid64] = newKills
+		jcms.playerData.playerLastFFKill[sid64] = os.time()
+
+		ply:SetNWInt("jcms_friendlyfire_counter", newKills)
+	end
+
+	function jcms.playerData_lastFriendlyKill(ply)
+		local sid64 = ply:SteamID64()
+		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
+		return jcms.playerData.playerLastFFKill[sid64] or 0
+	end
+
+	--TODO: Shared/use the NW int instead.
+	function jcms.playerData_IsPlayerLiability(ply_or_sid64)
+		return jcms.playerData_GetFriendlyKills(ply_or_sid64) > 4
+	end
 -- // }}}
 
 -- // Cash {{{
@@ -650,14 +719,8 @@ end
 
 	hook.Add("PostEntityTakeDamage", "jcms_DamageTracker", function(ent, dmg, took)
 		if not took then return end
-		ent.jcms_lastDamaged = CurTime()
-
-		if ent:IsPlayer() then
-			local data = jcms.class_GetData(ent)
-
-			if data and data.PostTakeDamage then
-				data.PostTakeDamage(ent, dmg, took, data)
-			end
+		if not ent:IsPlayer() then
+			ent.jcms_lastDamaged = CurTime()
 		end
 	end)
 	
@@ -691,12 +754,6 @@ end
 	end)
 
 	hook.Add("PlayerPostThink", "jcms_PlayerThink", function(ply)
-		local data = jcms.class_GetData(ply)
-
-		if data and data.Think then
-			data.Think(ply)
-		end
-		
 		if ply:IsOnFire() and ply:WaterLevel() > 0 then
 			ply:Extinguish()
 		end
@@ -827,16 +884,22 @@ end
 
 	hook.Add("PlayerPostThink", "jcms_PlayerMenuThink", function(ply)
 		if (ply:GetObserverMode() == OBS_MODE_FIXED or ply:GetObserverMode() == OBS_MODE_CHASE) then
-			local spawn = ents.FindByClass("info_player_start")[1]
-			
+			local eIndex = ply:EntIndex()
 			local pos
-			if not IsValid(spawn) then 
-				pos = Vector(0,0,0)
+			if #jcms.pathfinder.airNodes > player.GetCount() then --Airgraph is our best bet for reliability. I should make a better solution later.
+				local node = jcms.pathfinder.airNodes[eIndex]
+				pos = node.pos
 			else
-				pos = spawn:GetPos()
-			end
+				local spawn = ents.FindByClass("info_player_start")[1]
+			
+				if IsValid(spawn) then 
+					pos = spawn:GetPos()
+				else
+					pos = Vector(0,0,0)
+				end
 
-			pos.z = pos.z + ply:EntIndex()*72
+				pos.z = pos.z + eIndex*72
+			end
 			
 			ply:SetPos(pos)
 
@@ -859,7 +922,7 @@ end
 
 			if (game.SinglePlayer() and totalVotes > 0) or (CurTime() >= jcms.director.vote_time) then
 				local winningVoteCount, winningMap = -1, nil
-				for i, map in ipairs(jcms.director.vote_maps) do
+				for map in pairs(jcms.director.vote_maps) do
 					if (counts[ map ] or 0) > winningVoteCount then
 						winningVoteCount = counts[ map ] or 0
 						winningMap = map
@@ -868,7 +931,8 @@ end
 
 				if winningMap == game.GetMap() then
 					jcms.mission_Clear()
-				else
+				elseif not jcms.mapChanging then
+					jcms.mapChanging = true
 					RunConsoleCommand("changelevel", winningMap)
 				end
 			end
@@ -921,7 +985,9 @@ end
 
 	hook.Add("OnPlayerHitGround", "jcms_playerHitGround", function( ply, inWater, onFloater, speed )
 		timer.Simple(0, function()
-			ply.noFallDamage = false
+			if IsValid(ply) then 
+				ply.noFallDamage = false
+			end
 		end)
 	end)
 	
@@ -1097,9 +1163,6 @@ end
 
 	function GM:HandlePlayerArmorReduction(ply, dmginfo)
 		local dmgType = dmginfo:GetDamageType()
-
-		ply.jcms_lastDamaged = CurTime()
-		jcms.net_SendDamage(ply, dmginfo)
 		
 		if (ply:Armor() <= 0) or bit.band(dmgType, bit.bor(DMG_FALL, DMG_DROWN)) > 0 then 
 			return 
@@ -1214,7 +1277,7 @@ end
 								ply:SetNWInt("jcms_desiredteam", 1)
 								jcms.playerspawn_RespawnAs(ply, "spectator")
 								ply.jcms_lastDeathTime = CurTime()
-							elseif state == "evacuated" or d.missionData.evacuating then
+							elseif state == "evacuated" then
 								-- We've evacuated before. Now we're just spectating with the option to be an NPC.
 								ply:SetNWInt("jcms_desiredteam", 1)
 								ply:SetNWBool("jcms_evacuated", true)
@@ -1229,7 +1292,17 @@ end
 								ply.jcms_isNPC = true
 							else
 								-- We have never joined this game yet.
-								jcms.playerspawn_Menu(ply)
+								if table.Count(d.evacuated) > 0 then
+									-- Someone evacuated, we'll be considered evacuated as well
+									ply:SetNWInt("jcms_desiredteam", 1)
+									ply:SetNWBool("jcms_evacuated", true)
+									jcms.playerspawn_RespawnAs(ply, "spectator")
+									jcms.director_stats_SetLockedState(d, ply, "evacuated")
+									d.evacuated[ply] = true
+								else
+									-- Take us to the lobby
+									jcms.playerspawn_Menu(ply)
+								end
 							end
 						end
 					else
@@ -1286,6 +1359,9 @@ end
 					if jcms.team_JCorp_player(attacker) and attacker ~= ply then
 						jcms.statistics_AddOther(attacker, "ffire", 1)
 						jcms.director_stats_AddKillForSweeper(attacker, 3)
+						if not jcms.playerData_IsPlayerLiability(ply) then
+							jcms.playerData_AddFriendlyKill(attacker)
+						end
 						jcms.announcer_Speak(jcms.ANNOUNCER_FRIENDLYFIRE_KILL)
 					elseif jcms.team_NPC(attacker) then
 						jcms.director_stats_AddKillForNPC(attacker, 0)
@@ -2145,6 +2221,17 @@ end
 					if not jcms.director.evacuated[ ply ] then
 						jcms.director_stats_SetLockedState(jcms.director, ply, "npc")
 					end
+
+					local sid64 = ply:SteamID64()
+					for i, ent in ipairs(ents.GetAll()) do
+						if ent.jcms_owner == ply then
+							ent.jcms_owner = nil
+						end
+
+						if ent.jcms_owner_sid64 == sid64 then
+							ent.jcms_owner_sid64 = nil
+						end
+					end
 				end
 			end
 
@@ -2152,7 +2239,7 @@ end
 	end)
 	
 	concommand.Add("jcms_setclass", function(ply, cmd, args)
-		if (ply:GetObserverMode() == OBS_MODE_FIXED) or (ply:GetObserverMode() == OBS_MODE_CHASE and ply:GetNWInt("jcms_desiredteam", 0) == 1) then
+		if (ply:GetObserverMode() == OBS_MODE_FIXED) or (ply:GetObserverMode() == OBS_MODE_CHASE) then
 			local classData = jcms.classes[ args[1] ]
 			if classData and classData.jcorp then
 				ply:SetNWString("jcms_desiredclass", args[1])
@@ -2258,7 +2345,7 @@ end
 					price = (jcms.weapon_blacklist[class] and 0) or (jcms.weapon_HL2Prices[class] or jcms.weapon_predefinedPrices[class] or jcms.gunstats_CalcWeaponPrice( jcms.gunstats_GetExpensive(class) ))
 					jcms.printf("weapon '%s' restored to default price: %d J", class, price)
 				else
-					price = nil
+					--price = nil
 					jcms.printf("weapon '%s' has been disabled!", class)
 				end
 
@@ -2266,7 +2353,6 @@ end
 				
 				if oldPrice ~= price then
 					jcms.net_SendWeapon(class, price or 0, "all")
-					jcms.weapon_prices_wereModified = true
 				end
 			else
 				print("weapon class '" .. class .. "' does not exist")
@@ -2571,19 +2657,17 @@ end
 		end)
 
 		hook.Add("ShutDown", "jcms_SaveWeaponPrices", function()
-			if jcms.weapon_prices_wereModified then
-				local success, rtn = pcall(util.TableToJSON, jcms.weapon_prices, true)
-				if success and rtn then
-					success = file.Write(weaponPricesFile, rtn)
+			local success, rtn = pcall(util.TableToJSON, jcms.weapon_prices, true)
+			if success and rtn then
+				success = file.Write(weaponPricesFile, rtn)
 
-					if success then
-						jcms.printf("Saving weapon prices to '%s'.", weaponPricesFile)
-					else
-						jcms.printf("Failed to save weapon prices. Error: %s", tostring(rtn))
-					end
+				if success then
+					jcms.printf("Saving weapon prices to '%s'.", weaponPricesFile)
 				else
-					jcms.printf("Failed to save weapon prices, bad data inside jcms.weapon_prices table!")
+					jcms.printf("Failed to save weapon prices. Error: %s", tostring(rtn))
 				end
+			else
+				jcms.printf("Failed to save weapon prices, bad data inside jcms.weapon_prices table!")
 			end
 		end)
 	end
@@ -2663,6 +2747,23 @@ end
 		end)
 	end
 
+	do
+		local playerDataFile = "mapsweepers/server/playerData.dat"
+		hook.Add("InitPostEntity", "jcms_RestorePlayerData", function()
+			if file.Exists(playerDataFile, "DATA") then
+				local dataTxt = file.Read(playerDataFile, "DATA")
+				local dataTbl = util.JSONToTable(util.Decompress(dataTxt))
+
+				table.Merge(jcms.playerData, dataTbl, true)
+			end
+		end)
+
+		hook.Add("ShutDown", "jcms_SavePlayerData", function()
+			local dataStr = util.Compress(util.TableToJSON(jcms.playerData))
+			file.Write(playerDataFile, dataStr)
+		end)
+	end
+
 -- // }}}
 
 -- // Post {{{
@@ -2670,7 +2771,7 @@ end
 	function jcms.recolorAllDollies()
 		-- this is EXTREMELY important
 		for i, ent in ipairs(ents.GetAll()) do
-			if ent:GetModel() == "models/maxofs2d/companion_doll.mdl" then
+			if ent.GetModel and ent:GetModel() == "models/maxofs2d/companion_doll.mdl" then
 				ent:SetColor(Color(255, 0, 0))
 			end
 		end

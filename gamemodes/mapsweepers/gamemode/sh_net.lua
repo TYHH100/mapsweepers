@@ -38,6 +38,8 @@ local bits_ply, bits_ent, bits_wld = 2, 2, 4
 		local WLD_ORDERDATA = 6
 		local WLD_ANNOUNCER = 7
 		local WLD_FOG = 8
+		local WLD_ANNOUNCER_UPDATE = 9
+		local WLD_WEAPON_PRICES = 10
 	-- // }}}
 
 	-- // CLIENT {{{
@@ -51,14 +53,26 @@ local bits_ply, bits_ent, bits_wld = 2, 2, 4
 
 -- // }}}
 
-if SERVER then 
+if SERVER then
 	util.AddNetworkString "jcms_msg"
-	
-	net.inited_players = {}
-	
-	hook.Add("PlayerDisconnected", "jcms_netDisconnect", function(ply)
-		net.inited_players[ply] = nil
-	end)
+
+	hook.Add( "PlayerInitialSpawn", "jcms_netReady", function( initPly )
+		if initPly:IsBot() then
+			-- Bots don't need to wait for net messages, they are always ready.
+			hook.Run( "jcms_PlayerNetReady", initPly )
+			return
+		end
+
+		local hookName = "jcms_netReady_" .. tostring( initPly )
+
+		hook.Add( "SetupMove", hookName, function( setupPly, _, cmd )
+			if initPly ~= setupPly then return end
+			if cmd:IsForced() then return end
+
+			hook.Remove( "SetupMove", hookName )
+			hook.Run( "jcms_PlayerNetReady", setupPly )
+		end )
+	end )
 
 	local ply_messages = {
 		--Nothing here for now
@@ -91,7 +105,7 @@ if SERVER then
 			if jcms.director and jcms.director.votes then
 				local mapname = net.ReadString()
 				
-				if table.HasValue(jcms.director.vote_maps, mapname) then
+				if jcms.director.vote_maps[mapname] ~= nil then
 					jcms.director.votes[ply] = mapname
 				end
 
@@ -224,7 +238,7 @@ if SERVER then
 		end
 	end
 
-	function jcms.net_ShareMissionData(objectives)
+	function jcms.net_ShareMissionData(objectives, ply)
 		net.Start("jcms_msg")
 			net.WriteBool(false)
 			net.WriteEntity( game.GetWorld() )
@@ -240,7 +254,11 @@ if SERVER then
 				net.WriteBool(obj.percent)
 				net.WriteBool(obj.completed)
 			end
-		net.Broadcast()
+		if ply then
+			net.Send(ply)
+		else
+			net.Broadcast()
+		end
 	end
 	
 	function jcms.net_SendDamage(ply, arg, isNegated)
@@ -288,7 +306,6 @@ if SERVER then
 			local _i =  i + 1
 			timer.Simple(i*delay, function()
 				jcms.net_SendOrder(orderId, orderData)
-				jcms.printf("Sending order %d/%d", _i, count)
 			end)
 			i = i + 1
 		end
@@ -384,9 +401,15 @@ if SERVER then
 
 			net.WriteUInt(jcms.director.vote_time or 0, 32)
 			if jcms.director.vote_maps then
-				net.WriteUInt(#jcms.director.vote_maps, 4)
-				for i, map in ipairs(jcms.director.vote_maps) do
+				net.WriteUInt(table.Count(jcms.director.vote_maps), 4)
+				for map, wsid in pairs(jcms.director.vote_maps) do
 					net.WriteString(map)
+					if wsid then
+						net.WriteBool(true)
+						net.WriteString(wsid) -- Workshop ID
+					else
+						net.WriteBool(false)
+					end
 				end
 			else
 				net.WriteUInt(0, 4)
@@ -520,19 +543,17 @@ if SERVER then
 		end
 	end
 	
-	function jcms.net_SendManyWeapons(weapons, to)
-		local delay = 0.028
-		local count = table.Count(weapons)
-		local i = 0
-		
-		for weaponClass, weaponCost in pairs(weapons) do
-			local _i =  i + 1
-			timer.Simple(i*delay, function()
-				jcms.net_SendWeapon(weaponClass, weaponCost, to)
-				--jcms.printf("Sending weapon %d/%d", _i, count)
-			end)
-			i = i + 1
-		end
+	function jcms.net_SendWeaponPrices(weapons, to)
+		local weaponsData = util.TableToJSON(weapons)
+		local compressed = util.Compress(weaponsData)
+
+		net.Start("jcms_msg")
+			net.WriteBool(false)
+			net.WriteEntity(game.GetWorld())
+			net.WriteUInt(WLD_WEAPON_PRICES, bits_wld)
+			net.WriteUInt(#compressed, 16)
+			net.WriteData(compressed, #compressed)
+		net.Send(to)
 	end
 
 	function jcms.net_SendWeaponInLoadout(class, n, to)
@@ -687,6 +708,15 @@ if SERVER then
 			end
 		end
 	end
+
+	function jcms.net_SendNewAnnouncer(name)
+		net.Start("jcms_msg")
+			net.WriteBool(false)
+			net.WriteEntity(game.GetWorld())
+			net.WriteUInt(WLD_ANNOUNCER_UPDATE, bits_wld)
+			net.WriteString(name)
+		net.Broadcast()
+	end
 end
 
 if CLIENT then
@@ -791,11 +821,15 @@ if CLIENT then
 				jcms.aftergame = nil
 				jcms.aftergame_bonuses = nil
 
-				if isNewMission and not (NOMBAT or MUSIC_SYSTEM or jcms.cvar_nomusic:GetBool()) then -- Disable music if we have Nombat or DOOM music addons
+				if isNewMission and jcms.shouldPlayMusic() then -- Disable music if we have Nombat or DOOM music addons
 					jcms.playRandomSong()
 				end
 				
 				jcms.hud_BeginningSequence()
+
+				if CustomChat then 
+					CustomChat:Enable()
+				end
 			else
 				local isBonuses = net.ReadBool()
 				if isBonuses then
@@ -861,8 +895,9 @@ if CLIENT then
 					jcms.aftergame.voteTime = net.ReadUInt(32)
 					local voteOptionsCount = net.ReadUInt(4)
 					for i=1, voteOptionsCount do
-						local map = net.ReadString()
-						table.insert(jcms.aftergame.vote.choices, map)
+						local mapname = net.ReadString()
+						local wsid = net.ReadBool() and net.ReadString() or false -- Workshop ID
+						jcms.aftergame.vote.choices[mapname] = wsid
 					end
 
 					-- todo Skip the animations if we're late
@@ -952,6 +987,17 @@ if CLIENT then
 			end
 		end,
 
+		[ WLD_WEAPON_PRICES ] = function()
+			local compressedSize = net.ReadUInt(16)
+			local compressedData = net.ReadData(compressedSize)
+			local weaponsData = util.Decompress(compressedData)
+			local wepsPrices = util.JSONToTable(weaponsData)
+
+			for class, price in pairs(wepsPrices) do
+				jcms.weapon_prices[ class ] = price
+			end
+		end,
+
 		[ WLD_EARN ] = function()
 			local isStatistics = net.ReadBool()
 
@@ -1026,6 +1072,10 @@ if CLIENT then
 			jcms.mapFog.fogIntensity = net.ReadFloat()
 			jcms.mapFog.fogStart = net.ReadFloat()
 			jcms.mapFog.fogEnd = net.ReadFloat()
+		end,
+
+		[ WLD_ANNOUNCER_UPDATE ] = function()
+			jcms.announcer_Set(net.ReadString())
 		end
 	}
 

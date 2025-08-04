@@ -31,7 +31,9 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 	hook.Add("PlayerSwitchWeapon", "jcms_WepSwitchFOVFix", function(ply, oldWep, newWep)
 		timer.Simple(0.1, function() --*Yes, this has an actual purpose.* This might be an m9k issue but fov often gets fucked when switching. This resets it.
-			ply:SetFOV(ply:GetFOV())
+			if IsValid(ply) then
+				ply:SetFOV(ply:GetFOV())
+			end
 		end)
 	end)
 
@@ -59,6 +61,11 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 -- }}}
 
+-- // Compatibility {{{
+	local pmt = FindMetaTable("Player")
+	pmt.CheckLimit = function() return true end --This function only exists in sandbox, but some addons assume it exists always.
+-- // }}
+
 -- Enums {{{
 
 	jcms.LOCATOR_GENERIC = 0
@@ -76,7 +83,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 	jcms.SPAWNCAT_DEFENSIVE = 7
 
 	jcms.NOTIFY_DESTROYED = 1
-	jcms.NOTIFY_CAPTURED = 2
+	jcms.NOTIFY_OBTAINED = 2
 	jcms.NOTIFY_LOCATED = 3
 	jcms.NOTIFY_LOST = 4
 	jcms.NOTIFY_MARKED = 5
@@ -157,6 +164,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 -- Gun Stats {{{
 
 	jcms.default_weapons_datas = {
+		--HL2
 		weapon_stunstick = {
 			Slot = 0,
 			Spawnable = false,
@@ -246,6 +254,9 @@ jcms.vectorOne = Vector(1, 1, 1)
 			WorldModel = "models/weapons/w_crossbow.mdl",
 			Primary = { Ammo = "XBowBolt", Damage = 100, RPM = 31, ClipSize = 1, Cone = 0 }
 		}
+
+		--HL1 Weapons
+		--TODO:
 	}
 
 	jcms.weapon_HL2Prices = {
@@ -257,6 +268,11 @@ jcms.vectorOne = Vector(1, 1, 1)
 		weapon_rpg = 1299,
 		weapon_frag = 199,
 		weapon_crossbow = 699
+	}
+
+
+	jcms.weapon_HL1Prices = {
+		--Halflife source yay!!!!
 	}
 
 	jcms.weapon_ammoCosts = {
@@ -312,6 +328,10 @@ jcms.vectorOne = Vector(1, 1, 1)
 		["c4explosive"] = 33,
 		["nuclear_warhead"] = 975,
 		["proxmine"] = 45.65,
+
+		["m202_rocket"] = 80,
+		["matador_rocket"] = 80,
+		["rpg_rocket"] = 80,
 
 		-- Hunt Down The Freeman Weapon Pack
 		["hdtf_ammo_9mm"] = 1.2,
@@ -383,6 +403,10 @@ jcms.vectorOne = Vector(1, 1, 1)
 		["c4explosive"] = true,
 		["nuclear_warhead"] = true,
 		["proxmine"] = true,
+		
+		["m202_rocket"] = true,
+		["matador_rocket"] = true,
+		["rpg_rocket"] = true,
 
 		--HDTF
 		["hdtf_ammo_claymore"] = true,
@@ -657,6 +681,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			end
 
 			stats.accuracy = stats.accuracy or 0
+			stats.accuracy = (isvector(stats.accuracy) and 0) or stats.accuracy
 			if radAccuracy then
 				stats.accuracy = math.Round(math.deg(stats.accuracy), 2)
 			end
@@ -675,8 +700,24 @@ jcms.vectorOne = Vector(1, 1, 1)
 			end
 
 			stats.slot = gunData.Slot or 5
+			stats.icon = gunData.IconOverride
 
 		return stats
+	end
+
+	if CLIENT then
+		function jcms.gunstats_GetMat(class)
+			if not jcms.gunMats[ class ] then
+				wepstats = jcms.gunstats_GetExpensive(class)
+
+				jcms.gunMats[class] = Material(wepstats and wepstats.icon or "vgui/entities/"..class..".png")
+				if jcms.gunMats[class]:IsError() then
+					jcms.gunMats[class]  = Material("entities/"..class..".png")
+				end
+			end
+
+			return jcms.gunMats[ class ]
+		end
 	end
 
 	function jcms.gunstats_CountGivenAmmoFromLoadoutCount(stats, count) -- How much ammo is given for a weapon bought X times.
@@ -713,7 +754,6 @@ jcms.vectorOne = Vector(1, 1, 1)
 		--Fallback to 100 if we have no damage stat. Avoids anything *too* broken becoming cheap.
 		local dmgShot = (stats.damage == 0 and 100) or stats.damage
 		local damagePer = dmgShot * math.max(stats.numshots, 1) --damage per shot / ammo spent
-
 		local ammoCost = jcms.weapon_ammoCosts[stats.ammotype] or jcms.weapon_ammoCosts._DEFAULT
 
 		damagePer = math.max(damagePer, ammoCost) --Not ideal. Used to keep things with projectile weapons in-check. Vaguely.
@@ -1208,6 +1248,10 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 	function jcms.util_GetTimeUntilStart()
 		return math.max(0, game.GetWorld():GetNWFloat("jcms_missionStartTime", 0) - CurTime())
+	end
+
+	function jcms.util_GetMapGenProgress() -- -1: not generating, 0-1: generating
+		return math.Clamp(game.GetWorld():GetNWFloat("jcms_mapgen_progress", -1), -1, 1)
 	end
 
 	function jcms.util_IsGameTimerGoing()

@@ -63,6 +63,7 @@ if SERVER then
 
 		self.jcms_flinchProgress = 0
 		timer.Simple(0, function()
+			if not IsValid(self) then return end
 			self:SetSequence("chew_humanoid")
 		end)
 
@@ -74,6 +75,8 @@ if SERVER then
 		self:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
 		self:SetCloudRange(1250 * sizeMult * densityMult)
 		self:SetBloodColor(BLOOD_COLOR_RED)
+
+		self.jcms_dontScaleDmg = true
 
 		self.nextThink = CurTime() + 6.5 -- Don't immediately start damaging on spawn, give our cloud time to form.
 	end
@@ -111,7 +114,9 @@ if SERVER then
 			hook.Call("OnNPCKilled", GAMEMODE, self, dmgInfo:GetAttacker(), dmgInfo:GetInflictor())
 			
 			timer.Simple(0.15, function()
-				self:Remove()
+				if IsValid(self) then
+					self:Remove()
+				end
 			end)
 		end
 	end
@@ -134,12 +139,16 @@ if SERVER then
 				local entPos = ent:GetPos()
 				local dist = selfPos:Distance(entPos)
 				
+				if ent:IsPlayer() then
+					jcms.director_TryShowTip(ent, jcms.HINT_POLYP)
+					if IsValid(ent:GetNWEntity("jcms_vehicle", NULL)) then 
+						continue --Stop us from damaging people in vehicles, because that breaks things.
+					end
+				end
+				
 				dmg:SetDamage( math.ceil(Lerp( dist/cloudRange , 10, 1)) )
 				dmg:SetDamagePosition(entPos)
 				ent:TakeDamageInfo(dmg)
-				if ent:IsPlayer() then
-					jcms.director_TryShowTip(ent, jcms.HINT_POLYP)
-				end
 			end
 		end
 	end

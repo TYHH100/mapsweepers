@@ -19,6 +19,8 @@
 	Contact E-Mail: merekidorian@gmail.com
 --]]
 
+include "sh_debugtools.lua"
+
 include "sh_bspReader.lua" --Not sure if we even need this data on client. Will include data read-ins if/when necessary. - J
 
 include "shared.lua"
@@ -205,15 +207,14 @@ end)
 	jcms.playerfactions_players = {
 		-- RGG Members
 		["dc4617818bdcc3af96d716ec70b492638cdc075cf5ad7485452f0c798c9e5bcf"] = "rgg", -- traeesen, RGG leader
-		["4f6e3745ef69edde13140c22690ecc5ab07c150c815d8eee8834061e075cc78a"] = "rgg", -- [ANONYMOUS], RGG enforcer
 		["8d992bb020d23a76fb969bc6e93f29cab939c751d2c2637555cb2c87f6233b79"] = "rgg", -- Dullfifqariano, RGG enforcer
-		["89d7328b39ee17d1f9547f45b544e850b3fa1499a6fffcc47e3deb95319271a0"] = "rgg", -- [ANONYMOUS], RGG member
 		
 		-- Mafia Members
 		["4f92d868130e272c86a99ad26e3a4f0d920ad58d069aa59ee1b7d98568553a9f"] = "mafia", -- baggie, mafia boss
 		["53d0a5fcc6f87fb7449cad422a48196a2c85261598b84354cacea2317077ceb5"] = "mafia", -- Firch, mafia caporegime
-		["48f04893f12ffdd62342de3f63664b0c5ac941d0852c61f787c3e1ae3e2e1051"] = "mafia", -- Xelerax, mafia soldato
-		["101449ca879207d041035e8a7c8d07db99dd16aa37626b1a66799084d6ea5594"] = "mafia"  -- LeSeiL, mafia soldato
+		["48f04893f12ffdd62342de3f63664b0c5ac941d0852c61f787c3e1ae3e2e1051"] = "mafia", -- Xelerax, mafia caporegime
+		["101449ca879207d041035e8a7c8d07db99dd16aa37626b1a66799084d6ea5594"] = "mafia", -- LeSeiL, mafia soldato
+		["adbdc18a436c3d1a1f2544a98351eef55212800855a2d3e0795c2a7d116936c5"] = "mafia"  -- Beaver Eater, mafia soldato
 	}
 
 -- // }}}
@@ -226,6 +227,9 @@ end)
 	jcms.cvar_nomusic = CreateClientConVar("jcms_nomusic", "0", true, false, "Disables mission-start HL2 ambience at the start of each mission")
 
 	jcms.cvar_hud_scale = CreateClientConVar("jcms_hud_scale", "1", true, false, "Scale multiplier for the in-game HUD")
+	jcms.cvar_hud_novignette = CreateClientConVar("jcms_hud_novignette", "0", true, false, "Disables the darkening around corners of the screen")
+	jcms.cvar_hud_nocolourfilter = CreateClientConVar("jcms_hud_nocolourfilter", "0", true, false, "Disables the colour-modifying screen tint")
+	jcms.cvar_hud_noneardeathfilter = CreateClientConVar("jcms_hud_noneardeathfilter", "0", true, false, "Disables the near-death black-and-white effect")
 
 	jcms.cvar_crosshair_style = CreateClientConVar("jcms_crosshair_style", "1", true, false, "0: None\n1: T-shaped\n2: Triangle\n3: Plus-shaped\n4: Circle")
 	jcms.cvar_crosshair_dot = CreateClientConVar("jcms_crosshair_dot", "0", true, false, "Enables the central dot on the crosshair")
@@ -234,6 +238,8 @@ end)
 	jcms.cvar_crosshair_width = CreateClientConVar("jcms_crosshair_width", "1", true, false, "Thickness of the crosshair lines")
 	jcms.cvar_crosshair_length = CreateClientConVar("jcms_crosshair_length", "17", true, false, "Length of the crosshair lines")
 	jcms.cvar_crosshair_gap = CreateClientConVar("jcms_crosshair_gap", "0", true, false, "Added gap to the crosshair (there's a default one of ~8)")
+
+	jcms.cvar_favclass = CreateClientConVar("jcms_favclass", "", true, false, "Will automatically select this class whenever you join a game")
 
 -- // }}}
 
@@ -308,6 +314,10 @@ end)
 	
 	-- // Defaults {{{
 		jcms.EyePos_lowAccuracy = EyePos()
+		jcms.EyeFwd_lowAccuracy = EyeAngles():Forward() 
+		jcms.scrW = ScrW()
+		jcms.scrH = ScrH()
+
 		jcms.cachedValues.playerClass = "infantry"
 
 		jcms.cachedValues.crosshair_gap = jcms.cvar_crosshair_gap:GetInt()
@@ -331,6 +341,7 @@ end)
 
 		jcms.cachedValues.playerClass = locPly:GetNWString("jcms_class", "infantry")
 		jcms.EyePos_lowAccuracy = EyePos() --This doesn't work for things like the 3D2D HUD elements, but is suitable for LOD systems.
+		jcms.EyeFwd_lowAccuracy = EyeAngles():Forward() --TODO: Not actually helpful, should be removed eventually (is used in one niche context/needs to be undone there)
 	end)
 	
 	hook.Add("Think", "jcms_cachevalues_slow", function() --Stuff that doesn't change often/that we don't need accuracy for.
@@ -349,6 +360,9 @@ end)
 
 		jcms.cachedValues.motionSickness = jcms.cvar_motionsickness:GetBool()
 		jcms.cachedValues.hudScale = jcms.cvar_hud_scale:GetFloat()
+
+		jcms.scrW = ScrW()
+		jcms.scrH = ScrH()
 
 		jcms.nextCacheValues = CurTime() + 0.25
 	end)
@@ -373,7 +387,7 @@ end)
 			jcms.vm_evacd = 0
 			local ragdoll = ply:GetRagdollEntity()
 			local jVehicle = ply:GetNWEntity("jcms_vehicle")
-			local classData = jcms.class_GetData(ply)
+			local classData = jcms.class_GetLocPlyData()
 			
 			if IsValid(ragdoll) then
 				local boneId = ragdoll:LookupBone("ValveBiped.Bip01_Head1")
@@ -423,7 +437,13 @@ end)
 			elseif IsValid(jVehicle) and jVehicle.CalcViewDriver then
 				return jVehicle:CalcViewDriver(ply, origin, angles, fov, znear, zfar)
 			elseif classData and classData.CalcView then
-				return classData.CalcView(ply, origin, angles, fov, znear, zfar)
+				local rtn = classData.CalcView(ply, origin, angles, fov, znear, zfar)
+
+				if type(rtn) == "table" then
+					return rtn
+				elseif type(rtn) == "number" then
+					fov = rtn
+				end
 			end
 			
 			local wep = ply:GetActiveWeapon()
@@ -506,50 +526,105 @@ end)
 		end
 	end
 
+	local function drawBulletShield(ent, i)
+		local shield = emt.GetNWInt(ent, "jcms_shield", 0)
+		if shield > 0 then
+			i = i or ent:EntIndex()
+			local vUp = jcms.vectorUp
+			local entTbl = ent:GetTable()
+			local jcorp = ent:IsPlayer() and ent:Team() == 1
+			local time = jcorp and CurTime()*(shield+2) or CurTime()*8
+			local imInside = ent == jcms.locPly and not ent:ShouldDrawLocalPlayer()
+			
+			if not entTbl.jcms_shieldDamageAnim then
+				entTbl.jcms_shieldDamageAnim = 0
+				entTbl.jcms_shieldLastCount = shield
+			elseif entTbl.jcms_shieldLastCount ~= shield then
+				if entTbl.jcms_shieldLastCount > shield then
+					entTbl.jcms_shieldDamageAnim = 1
+				end
+				entTbl.jcms_shieldLastCount = shield
+			else
+				entTbl.jcms_shieldDamageAnim = math.max(0, entTbl.jcms_shieldDamageAnim - FrameTime() * (imInside and 1 or 4))
+			end
 
-	hook.Add("PostDrawOpaqueRenderables", "jcms_BulletShields", function(bDrawingDepth, bDrawingSkybox, isDraw3DSkybox)
+			if not entTbl.jcms_shieldColor then
+				entTbl.jcms_shieldColor = Color(0, 0, 0, 0)
+			end
+
+			local damageAnim = entTbl.jcms_shieldDamageAnim
+			local color = entTbl.jcms_shieldColor
+			
+			local pos, rad = ent:WorldSpaceCenter(), ent:BoundingRadius()
+			if imInside then
+				rad = -rad
+				
+				if damageAnim <= 0.01 then
+					return
+				end
+			end
+
+			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+				local osc = jcorp and (time+0.6)%2-1 or math.sin(time+i)
+				local size = rad*2.4*(1-osc^2) + damageAnim * 50
+				render.SetColorMaterial()
+				
+				if jcorp then
+					local alpha = shield*16
+					color:SetUnpacked(24 + 100*damageAnim, shield*32 + 200*damageAnim, 230, alpha+150*damageAnim)
+				else
+					local alpha = shield * 8
+					color:SetUnpacked(255, 200, 100*damageAnim, alpha+150*damageAnim)
+				end
+				if imInside then
+					color.a = color.a*damageAnim*0.2
+				end
+				render.DrawSphere(pos, rad - math.random()*4, 6, 6, color )
+				render.SetMaterial(jcms.render_matRing)
+
+				if jcorp then
+					color:SetUnpacked(64+damageAnim*255, math.Remap(shield, 1, 3, 164, 0), 255, 255)
+				else
+					color:SetUnpacked(255, 255, damageAnim*255, 255)
+				end
+				if imInside then
+					color.a = color.a*damageAnim
+				end
+				render.DrawQuadEasy(pos + osc*rad*1.1*vUp, vUp, size, size, color, 0)
+				
+				if jcorp then
+					color:SetUnpacked(255, 0, shield*8+175*damageAnim, 150)
+				else
+					color:SetUnpacked(255, 140+150*damageAnim, 175*damageAnim, 150)
+				end
+				if imInside then
+					color.a = color.a*damageAnim
+				end
+				osc = jcorp and time%2-1 or math.sin(time+i+0.6)
+				size = rad*2.7*(1-osc^2)
+				render.DrawQuadEasy(pos + osc*rad*1.2*vUp, vUp, size, size, color, 0)
+				
+			render.OverrideBlend( false )
+		end
+	end
+
+	hook.Add("PostDrawTranslucentRenderables", "jcms_BulletShields", function(bDrawingDepth, bDrawingSkybox, isDraw3DSkybox)
 		if bDrawingDepth or bDrawingSkybox or isDraw3DSkybox or render.GetRenderTarget() then return end
-
-		local time = CurTime()*8
-		local vUp = jcms.vectorUp
-		local matRing = jcms.render_matRing
 
 		for i, ent in ipairs( ents.FindByClass("npc_*") ) do
 			if IsValid(ent) and not emt.GetNoDraw(ent) and not emt.IsDormant(ent) then
-				local shield = emt.GetNWInt(ent, "jcms_shield", 0)
-				if shield > 0 then
-					local entTbl = ent:GetTable()
-
-					if not entTbl.jcms_shieldDamageAnim then
-						entTbl.jcms_shieldDamageAnim = 0
-						entTbl.jcms_shieldLastCount = shield
-					elseif entTbl.jcms_shieldLastCount ~= shield then
-						entTbl.jcms_shieldDamageAnim = 1
-						entTbl.jcms_shieldLastCount = shield
-					else
-						entTbl.jcms_shieldDamageAnim = math.max(0, entTbl.jcms_shieldDamageAnim - FrameTime() * 4)
-					end
-					local damageAnim = entTbl.jcms_shieldDamageAnim
-					render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
-
-						local pos, rad = ent:WorldSpaceCenter(), ent:BoundingRadius()
-						local osc = math.sin(time+i)
-						local size = rad*2.4*(1-osc^2) + damageAnim * 50
-						render.SetColorMaterial()
-						local alpha = shield * 8
-						--todo: we might be able to save time by storing these color objects on the entity & adjusting their components here instead.
-						render.DrawSphere(pos, rad - math.random()*4, 6, 6, Color(255, 200, 100*damageAnim, alpha+150*damageAnim) )
-						render.SetMaterial(jcms.render_matRing)
-						render.DrawQuadEasy(pos + osc*rad*1.1*vUp, vUp, size, size, Color(255, 255, damageAnim*255), 0)
-						
-						osc = math.sin(time+i+0.6)
-						size = rad*2.7*(1-osc^2)
-						render.DrawQuadEasy(pos + osc*rad*1.2*vUp, vUp, size, size, Color(255, 140+150*damageAnim, 175*damageAnim, 150), 0)
-						
-					render.OverrideBlend( false )
-				end
-				
+				drawBulletShield(ent, i)
 				drawSweeperShield(ent)
+			else
+				local entTbl = ent:GetTable()
+				entTbl.jcms_shieldDamageAnim = nil
+				entTbl.jcms_shieldLastCount = nil
+			end
+		end
+
+		for i, ent in ipairs( player.GetAll() ) do
+			if IsValid(ent) and not emt.GetNoDraw(ent) and not emt.IsDormant(ent) and ent:GetObserverMode() == OBS_MODE_NONE then
+				drawBulletShield(ent, i)
 			else
 				local entTbl = ent:GetTable()
 				entTbl.jcms_shieldDamageAnim = nil
@@ -561,6 +636,44 @@ end)
 			if IsValid(ent) and not emt.IsDormant(ent) then
 				drawSweeperShield(ent)
 			end
+		end
+	end)
+
+	local function drawLiabilityText(ffKills)
+		local liabilityTxt = string.format("%s: x%d", language.GetPhrase("jcms.liability"), ffKills)
+		draw.SimpleText(liabilityTxt, "jcms_hud_big", 0, 0, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		draw.SimpleText("↓", "jcms_hud_big", 0, 15, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+
+		render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+			draw.SimpleText(liabilityTxt, "jcms_hud_big", -ffKills*math.random()/4 -2, -ffKills*math.random()/4 -2, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)	
+			draw.SimpleText("↓", "jcms_hud_big", -ffKills*math.random()/4 -2, 15 -ffKills*math.random()/4 -2, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+		render.OverrideBlend(false)
+
+		--TODO: Friendly-fire icon
+	end
+
+	hook.Add("PostDrawOpaqueRenderables", "jcms_friendlyfire_counter", function(bDrawingDepth, bDrawingSkybox, isDraw3DSkybox)
+		if bDrawingDepth or bDrawingSkybox or isDraw3DSkybox or render.GetRenderTarget() then return end
+
+		local cTime = CurTime()
+		local addVec = Vector(0,0,105)
+		for i, ply in player.Iterator() do
+			if not IsValid(ply) or ply:IsDormant() or ply:GetNoDraw() or not(ply:GetObserverMode() == OBS_MODE_NONE) then continue end
+
+			local ffKills = ply:GetNWInt("jcms_friendlyfire_counter", 0)
+			if ffKills < 4 then continue end
+
+
+			local pos = ply:GetPos()
+			addVec.z = 105 + math.sin(cTime*2 + ply:EntIndex() * 2) * 10
+			pos:Add(addVec)
+			cam.Start3D2D( pos, Angle(0,cTime * 75,90), 0.25 )
+				drawLiabilityText(ffKills)
+			cam.End3D2D()
+			
+			cam.Start3D2D( pos, Angle(0,cTime * 75 - 180,90), 0.25 )
+				drawLiabilityText(ffKills)
+			cam.End3D2D()
 		end
 	end)
 	
@@ -608,11 +721,15 @@ end)
 		end
 	end)
 
+	jcms.ragdollCount = 0
 	hook.Add( "CreateClientsideRagdoll", "jcms_ragdoll_fastclear", function(ent, ragdoll)
-		--todo: Only enable if our perf is bad.
+		jcms.ragdollCount = jcms.ragdollCount + 1 --Tracking so we can clear faster if there are too many.
 
-		timer.Simple(60, function()
-			if not IsValid(ragdoll) then return end
+		timer.Simple(50 - math.max(jcms.ragdollCount - 20, 0), function()
+			if not IsValid(ragdoll) or not(ragdoll:GetClass() == "class C_ClientRagdoll") then
+				jcms.ragdollCount = jcms.ragdollCount - 1
+				return
+			end
 			
 			local ed = EffectData()
 			ed:SetColor(jcms.util_colorIntegerJCorp) --Would be nice to be faction-coloured, but client doesn't know what faction npcs are.
@@ -621,6 +738,7 @@ end)
 			util.Effect("jcms_spawneffect", ed)
 
 			timer.Simple(2, function()
+				jcms.ragdollCount = jcms.ragdollCount - 1
 				if not IsValid(ragdoll) then return end 
 
 				ragdoll:Remove()
@@ -673,7 +791,27 @@ end)
 			})
 		end
 		
-		EmitSound(songs[math.random(1, #songs)], EyePos(), -2, CHAN_AUTO, 1, 75)
+		EmitSound( "#" .. songs[math.random(1, #songs)], EyePos(), -2, CHAN_AUTO, 1, 0)
+	end
+
+	function jcms.playRandomCombatSong()
+		local songs = {
+			"music/hl1_song10.mp3",
+			"music/hl2_song12_long.mp3",
+			"music/hl2_song16.mp3",
+			"music/hl2_song20_submix0.mp3",
+			"music/hl2_song20_submix4.mp3",
+			--"music/hl2_song29.mp3",
+			--"music/hl2_song3.mp3",
+			"music/hl2_song4.mp3"
+		}
+		--todo: episodic sounds
+		
+		EmitSound( "#" .. songs[math.random(1, #songs)], EyePos(), -2, CHAN_AUTO, 1, 0)
+	end
+
+	function jcms.shouldPlayMusic()
+		return not ( NOMBAT or MUSIC_SYSTEM or jcms.cvar_nomusic:GetBool() )
 	end
 
 -- // }}}
@@ -736,7 +874,8 @@ end)
 		local coin_mat = CreateMaterial( "jcms_coin_mat", "UnlitGeneric", {
 			["$basetexture"] = coin_rt:GetName(),
 			["$translucent"] = 1,
-			["$vertexcolor"] = 1
+			["$vertexcolor"] = 1,
+			["$vertexalpha"] = 1
 		} )
 		
 		function jcms.draw_IconCash_optimised(x, y)
@@ -768,23 +907,25 @@ end)
 	} )
 
 	function jcms.render_HackedByRebels(ent)
-		local eyeDist = EyePos():Distance(ent:WorldSpaceCenter())
+		local entPos = ent:GetPos()
+		local eyeDist = jcms.EyePos_lowAccuracy:Distance(entPos)
 		if eyeDist > 4500 then return end
 		
 		render.SetMaterial(jcms.render_rebelHackBeamMat)
 		local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
+		local minsX, minsY, minsZ = mins:Unpack()
+		local maxsX, maxsY, maxsZ = maxs:Unpack()
+
 		local norm = VectorRand(-1, 1)
 		norm:Normalize()
-		local up = Vector(0, 0, 1)
-		local right = norm:Cross(up)
-		local entpos = ent:GetPos()
+		local right = norm:Cross(jcms.vectorUp)
 		
 		local gi = 0
 		local cols = jcms.render_rebelHackBeamColors
-		local beamReduction = math.floor(math.min(3, eyeDist/1500))
+		local beamReduction = math.floor(math.min(3, eyeDist/1500)) --LOD
 		for i=1, math.random(0, 3 - beamReduction ) do
-			v = Vector(math.Rand(mins.x, maxs.x), math.Rand(mins.y, maxs.y), math.Rand(mins.z, maxs.z))
-			v:Add(entpos)
+			v = Vector(math.Rand(minsX, maxsX), math.Rand(minsY, maxsY), math.Rand(minsZ, maxsZ))
+			v:Add(entPos)
 		
 			local n = math.random(4, 6)
 			render.StartBeam(n)
@@ -808,7 +949,7 @@ end)
 
 			norm:SetUnpacked(math.Rand(-1, 1), math.Rand(-1, 1), math.Rand(-1, 1))
 			norm:Normalize()
-			right = norm:Cross(up)
+			right = norm:Cross(jcms.vectorUp)
 		end
 	end
 	
@@ -863,48 +1004,65 @@ end)
 	jcms.colormod_death = 0
 
 	hook.Add("RenderScreenspaceEffects", "jcms_jvision", function()
+		local colourmod = not jcms.cvar_hud_nocolourfilter:GetBool()
+		local deathmod = not jcms.cvar_hud_noneardeathfilter:GetBool()
+
 		local me = jcms.locPly
-		local classData = jcms.class_GetData(me)
+		local classData = jcms.class_GetLocPlyData()
+
+		local cTime = CurTime()
 		
-		if classData and classData.ColorMod then
-			classData.ColorMod(me, jcms.colormod)
-		else
-			local color = jcms.color_bright
-			local avg = (color.r + color.g + color.b) / 3
-			local cTime = CurTime()
-
-			local addFactor, mulFactor = (math.sin(cTime) + 1)/2 * 0.03 + 0.08, (math.cos(cTime) + 1)/2 * 0.05
-			
-			local blind = 0
-			local red = math.Clamp(jcms.hud_blindingRedLight or 0, -1, 1)
-			if red > 0 then
-				jcms.hud_blindingRedLight = math.max(0, red - FrameTime())
-				blind = math.ease.InCubic(red)
-			elseif red < 0 then
-				jcms.hud_blindingRedLight = math.min(0, red + FrameTime())
-				blind = -math.ease.InCubic(-red)
-			end
-			
-			jcms.colormod["$pp_colour_addr"] = (color.r - avg) / 255 * addFactor
-			jcms.colormod["$pp_colour_addg"] = (color.g - avg) / 255 * addFactor - blind*0.3
-			jcms.colormod["$pp_colour_addb"] = (color.b - avg) / 255 * addFactor - blind*0.3
-
-			jcms.colormod["$pp_colour_mulr"] = (color.r - avg) / 255 * mulFactor
-			jcms.colormod["$pp_colour_mulg"] = (color.g - avg) / 255 * mulFactor
-			jcms.colormod["$pp_colour_mulb"] = (color.b - avg) / 255 * mulFactor
-			
-			jcms.colormod["$pp_colour_contrast"] = Lerp(blind^2, 1.06, math.Rand(2.7, 3.06))
-			jcms.colormod["$pp_colour_brightness"] = Lerp(blind^2, 0.025, -math.Rand(0.67, 0.72))
-			
-			if IsValid(me) and me:GetObserverMode() == OBS_MODE_NONE then
-				local W = 15
-				local maxArmour = me:GetMaxArmor()
-				jcms.colormod_death = (jcms.colormod_death*W + 1-math.Clamp( math.max(me:Health()/me:GetMaxHealth(), maxArmour>0 and ((me:Armor()/maxArmour)^2)/2 or 0), 0, 1))/(W+1)
-				jcms.colormod[ "$pp_colour_colour" ] = Lerp(jcms.colormod_death^3, 1, math.sin( cTime*2 )*0.05)
+		if colourmod then
+			if classData and classData.ColorMod then
+				classData.ColorMod(me, jcms.colormod)
 			else
-				jcms.colormod_death = 0
-				jcms.colormod[ "$pp_colour_colour" ] = 1
+				local color = jcms.color_bright
+				local avg = (color.r + color.g + color.b) / 3
+
+				local addFactor, mulFactor = (math.sin(cTime) + 1)/2 * 0.03 + 0.08, (math.cos(cTime) + 1)/2 * 0.05
+				
+				local blind = 0
+				local red = math.Clamp(jcms.hud_blindingRedLight or 0, -1, 1)
+				if red > 0 then
+					jcms.hud_blindingRedLight = math.max(0, red - FrameTime())
+					blind = math.ease.InCubic(red)
+				elseif red < 0 then
+					jcms.hud_blindingRedLight = math.min(0, red + FrameTime())
+					blind = -math.ease.InCubic(-red)
+				end
+				
+				jcms.colormod["$pp_colour_addr"] = (color.r - avg) / 255 * addFactor
+				jcms.colormod["$pp_colour_addg"] = (color.g - avg) / 255 * addFactor - blind*0.3
+				jcms.colormod["$pp_colour_addb"] = (color.b - avg) / 255 * addFactor - blind*0.3
+
+				jcms.colormod["$pp_colour_mulr"] = (color.r - avg) / 255 * mulFactor
+				jcms.colormod["$pp_colour_mulg"] = (color.g - avg) / 255 * mulFactor
+				jcms.colormod["$pp_colour_mulb"] = (color.b - avg) / 255 * mulFactor
+				
+				jcms.colormod["$pp_colour_contrast"] = Lerp(blind^2, 1.06, math.Rand(2.7, 3.06))
+				jcms.colormod["$pp_colour_brightness"] = Lerp(blind^2, 0.025, -math.Rand(0.67, 0.72))
 			end
+		else
+			jcms.colormod["$pp_colour_addr"] = 0
+			jcms.colormod["$pp_colour_addg"] = 0
+			jcms.colormod["$pp_colour_addb"] = 0
+
+			jcms.colormod["$pp_colour_mulr"] = 0
+			jcms.colormod["$pp_colour_mulg"] = 0
+			jcms.colormod["$pp_colour_mulb"] = 0
+
+			jcms.colormod["$pp_colour_contrast"] = 1
+			jcms.colormod["$pp_colour_brightness"] = 0
+		end
+
+		if IsValid(me) and me:GetObserverMode() == OBS_MODE_NONE and deathmod then
+			local W = 15
+			local maxArmour = me:GetMaxArmor()
+			jcms.colormod_death = (jcms.colormod_death*W + 1-math.Clamp( math.max(me:Health()/me:GetMaxHealth(), maxArmour>0 and ((me:Armor()/maxArmour)^2)/2 or 0), 0, 1))/(W+1)
+			jcms.colormod[ "$pp_colour_colour" ] = Lerp(jcms.colormod_death^3, 1, math.sin( cTime*2 )*0.05)
+		else
+			jcms.colormod_death = 0
+			jcms.colormod[ "$pp_colour_colour" ] = 1
 		end
 		
 		DrawColorModify(jcms.colormod)
@@ -1154,8 +1312,14 @@ end)
 
 				jcms.statistics = dataTbl or jcms.statistics --fallback for if our file's fucked.
 				if not dataTbl then
+					jcms_debug_fileLog("Failed to read stats file. Stats reset.")
 					Error("[Map Sweepers] Failed to read stats file. Stats reset.")
 				end
+			else
+				jcms_debug_fileLog("Stats file doesn't exist. If this is your first time playing this is normal. Otherwise (and if your stats reset) go tell one of the devs.")
+				local statsFile = file.Open( statsFile, "rb", "DATA" )
+				jcms_debug_fileLog("file.Open returned: " .. tostring(statsFile) )
+				if statsFile then statsFile:Close() end
 			end
 		end)
 

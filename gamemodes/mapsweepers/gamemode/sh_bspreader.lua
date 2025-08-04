@@ -160,8 +160,14 @@ bspReader = bspReader or {} --Likely to use this in other addons, don't want to 
 		bspReader.clusterCount = numClusters
 
 		for i = 1, numClusters, 1 do --Read all of the offsets 
-			table.insert(bspReader.pvsIndices, mapFile:ReadLong())
-			table.insert(bspReader.pasIndices, mapFile:ReadLong())
+			local pvs, pas = mapFile:ReadLong(), mapFile:ReadLong()
+			if not pvs or not pas then --todo: Somewhere down the line I probably want to support these maps.
+				ErrorNoHaltWithStack("[BSPReader] Issue reading map data, might be an unsupported format.")
+				return 
+			end 
+
+			table.insert(bspReader.pvsIndices, pvs)
+			table.insert(bspReader.pasIndices, pas)
 		end
 
 		--[[todo: We don't get the length of this properly here at all, and so read in a lot more than necessary. 
@@ -181,6 +187,41 @@ bspReader = bspReader or {} --Likely to use this in other addons, don't want to 
 		mapFile:Close()
 		print("[BSPReader] Read PVS Data")
 		bspReader.pvsDataRead = true
+	end
+
+	--TODO: Verify that I've read everything correctly. Entity:GetBrushPlane( number id ) might be useful for this?
+	--Otherwise would be kinda difficult to check since this is just a bunch of planes.
+	function bspReader.readBrushData(brush_contents) --Probably more memory intensive due to subtables, so only read what we need.
+		if bspReader.brushDataRead and bspReader.brushDataRead[brush_contents] then return end
+
+		local mapFile = file.Open("maps/" .. game.GetMap() .. ".bsp", "rb" , "GAME")
+		bspReader.brushes = {}
+		bspReader.brushContents = {}
+
+		local brushOffs, brushLen = bspReader.getOffset(mapFile, 18)
+		local brushSideOffs, brushSideLen = bspReader.getOffset(mapFile, 19)
+
+		for i = 1, brushLen/16, 1 do 
+			mapFile:Seek(brushOffs + ((i-1) * 12))
+			local firstSide = mapFile:ReadLong()
+			local numSides = mapFile:ReadLong()
+			local contents = mapFile:ReadLong()
+
+			if bit.band(contents, brush_contents) == 0 then continue end
+
+			local br = {}
+			bspReader.brushes[i] = br
+			bspReader.brushContents[i] = contents
+			for j=1, numSides, 1 do 
+				mapFile:Seek(brushOffs + firstSide + ((j-1) * 8))
+				br.planeNum = mapFile:ReadUShort()
+			end
+		end
+
+		mapFile:Close()
+		print("[BSPReader] Read Brush Data")
+		bspReader.brushDataRead = bspReader.brushDataRead or {}
+		bspReader.brushDataRead[brush_contents] = true
 	end
 
 	--[[ --idk if we actually need this. I don't read any cluster data (directly) in advSound.

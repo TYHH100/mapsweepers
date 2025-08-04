@@ -45,6 +45,8 @@ class.matOverrides = {
 	["models/cstrike/ct_sas_glass"] = "jcms/jglow"
 }
 
+jcms.class_useNewSentinel = false
+
 if SERVER then
 	function class.OnSpawn(ply, data)
 		local filt = RecipientFilter()
@@ -80,7 +82,9 @@ if SERVER then
 					rtnDmgInfo:SetDamage(rtnDmg)
 					rtnDmgInfo:SetDamagePosition(attkPos)
 
+					ply.jcms_sentinelReturningDamage = true
 					attacker:TakeDamageInfo(rtnDmgInfo)
+					ply.jcms_sentinelReturningDamage = nil
 
 					local effectdata = EffectData()
 					effectdata:SetStart(attkPos)
@@ -118,7 +122,7 @@ if SERVER then
 
 			if armour > 0 and ply.sentinel_canTeleport and not ply.sentinel_isTeleporting then
 				timer.Simple(0, function() --Just checking if dmg > armour doesn't account for all of the modifiers we apply, so this guarantees accurate behaviour.
-					if ply:Armor() > 0 then return end 
+					if not IsValid(ply) or ply:Armor() > 0 then return end 
 
 					ply.sentinel_isTeleporting = true
 
@@ -126,6 +130,7 @@ if SERVER then
 					ply.sentinel_teleportSound:Play()
 
 					timer.Simple(1.5, function() --Delay/warning before teleporting.
+						if not IsValid(ply) then return end
 						ply.sentinel_teleportSound:Stop()
 						ply.sentinel_isTeleporting = false
 
@@ -243,21 +248,45 @@ if SERVER then
 		end
 	end
 
-	function class.OnKill(ply, npc, inflictor) --Shield charge on kill.
-		local charge = math.ceil((npc.jcms_bounty or 1) / 30) --We receive some shield even if our target has no bounty.
+	function class.OnKill(ply, npc, inflictor)
+		if jcms.class_useNewSentinel then
+			-- Experimental sentinel
+			if ply.jcms_sentinelReturningDamage then
+				return -- Don't get a shield from thorn kills
+			end
+
+			if jcms.util_IsStunstick(inflictor) or (not npc.jcms_bounty or npc.jcms_bounty < 20) then
+				return -- Dont give shields for kills that are too cheap. Unless we're using stunstick.
+			end
+
+			local shieldCount = ply:GetNWInt("jcms_shield", 0)
+			local shieldCountCap = 3
+			local final = shieldCount == shieldCountCap - 1
+			ply:SetNWInt("jcms_shield", math.min(shieldCount + 1, shieldCountCap))
+
+			if shieldCount < shieldCountCap then
+				local sfx = final and ("ambient/energy/newspark0"..math.random(10, 11)..".wav") or ("ambient/energy/newspark0"..math.random(8, 9)..".wav")
+				ply:EmitSound("ambient/energy/newspark09.wav", 75, math.Remap(shieldCount, 0, shieldCountCap-1, 104, 119), 1)
+			end
+		else
+			--Shield charge on kill.
+			local charge = math.ceil((npc.jcms_bounty or 1) / 30) --We receive some shield even if our target has no bounty.
 		
-		if charge > 0 then
-			local oldArmor = ply:Armor()
-			local newArmor = math.min( oldArmor + charge, ply:GetMaxArmor() )
-			
-			if newArmor ~= oldArmor then
-				ply:SetArmor( newArmor )
-				ply:EmitSound("items/battery_pickup.wav", 50, 110 + charge * 5 + math.random()*5, 0.75)
+			if charge > 0 then
+				local oldArmor = ply:Armor()
+				local newArmor = math.min( oldArmor + charge, ply:GetMaxArmor() )
+				
+				if newArmor ~= oldArmor then
+					ply:SetArmor( newArmor )
+					ply:EmitSound("items/battery_pickup.wav", 50, 110 + charge * 5 + math.random()*5, 0.75)
+				end
 			end
 		end
 	end
 
 	function class.Think(ply)
+		if CLIENT then return end
+
 		if CurTime() - ply.sentinel_lastDmgBlocked < 2 then
 			if not(ply.sentinel_breathSound:IsPlaying()) then 
 				ply.sentinel_breathSound:PlayEx(1, 80)
@@ -280,66 +309,56 @@ if CLIENT then
 	function class.CalcViewModelView( wep, viewModel, oldPos, oldAng, cPos, cAng, ply )
 		if jcms.cvar_motionsickness:GetBool() then return end
 		local plyTable = ply:GetTable()
-		
-		local pos = Lerp(0.5, oldPos, cPos)
-		local ang = Lerp(0.5, oldAng, cAng)
-		
+
 		local vel = ply:GetVelocity()
 		local speed = vel:Length()
 		local mspeed = 200
 		
-		local right, up, fwd = ang:Right(), ang:Up(), ang:Forward()
+		local right, up, fwd = cAng:Right(), cAng:Up(), cAng:Forward()
 		local dotRight = vel:Dot(right)
 		local bob = plyTable.jcms_viewBobProgress or 0
 		local sway1, sway2 = math.sin(bob), math.sin(bob*2)*0.2
 		
 		plyTable.jcms_viewBobSprint = ( (plyTable.jcms_viewBobSprint or 0)*12 + (ply:IsSprinting() and 1 or 0) ) / 13
 		local sprintHolster = plyTable.jcms_viewBobSprint
-
-
-		if not jcms.convar_fovdesired then
-			jcms.convar_fovdesired = GetConVar("fov_desired")
-		end
-		local normalFov = jcms.convar_fovdesired:GetFloat()
-		
-		local zoomin = 1 - 1 / (math.abs(normalFov - (plyTable.jcms_viewBobFov or 0)) + 1)
-		plyTable.jcms_viewBobZoom = ((plyTable.jcms_viewBobZoom or 0)*3 + zoomin)/4
-		
-		pos:Add(ang:Forward()*Lerp(plyTable.jcms_viewBobZoom, 0, 3))
-		pos:Add(ang:Right()*Lerp(plyTable.jcms_viewBobZoom, 0, -1))
-		pos:Add(ang:Up()*Lerp(plyTable.jcms_viewBobZoom, 0, 1))
 		
 		local magn = Lerp(1 - mspeed/(speed+mspeed), 0, 2)
-		ang:RotateAroundAxis(up, -sway1*magn+Lerp(plyTable.jcms_viewBobZoom, -dotRight*0.02, -2-dotRight*0.003))
-		ang:RotateAroundAxis(right, -sway2*magn - sprintHolster*13 + plyTable.jcms_viewBobZoom)
-		ang:RotateAroundAxis(fwd, Lerp(plyTable.jcms_viewBobZoom, dotRight*0.03, -7))
+		cAng:RotateAroundAxis(up, (-sway1-dotRight*0.02)*magn)
+		cAng:RotateAroundAxis(right, (-sway2 - sprintHolster*13)*magn)
+		cAng:RotateAroundAxis(fwd, dotRight*0.03*magn)
 		
 		if plyTable.jcms_viewBobDiffVector then
+			local oldx, oldy, oldz = cPos:Unpack()
 			local diff = plyTable.jcms_viewBobDiffVector
-			pos:Add(diff)
+			cPos:Add(diff)
 			diff:Div(10)
 			local dip = plyTable.jcms_viewBobDip or 0
 			diff:Add(up * dip * -0.23)
-			pos:Add(diff)
-			pos:Add(math.cos(bob)*right*0.3)
+			cPos:Add(diff)
+			cPos:Add(math.cos(bob)*right*0.3)
+
+			local pushBackMagn = math.Clamp(magn, 0, 1)
+			local newx, newy, newz = cPos:Unpack()
+			cPos:SetUnpacked( Lerp(pushBackMagn, oldx, newx), Lerp(pushBackMagn, oldy, newy), Lerp(pushBackMagn, oldz, newz) )
 		end
-		
-		return pos, ang
 	end
 
 	function class.CalcView(ply, origin, angles, fov)
 		if jcms.cvar_motionsickness:GetBool() then return end
 		local plyTable = ply:GetTable()
-		
+
 		-- // ViewBob {{{
 			local speed = ply:GetVelocity():Length()
+			local mspeed = 200
+			local magn = Lerp(1 - mspeed/(speed+mspeed), 0, -0.13)
+			local dipMagn = math.Clamp((1 - mspeed/(speed+mspeed))*4, 0, 1)
+
 			local bob = plyTable.jcms_viewBobProgress or 0
 			bob = bob + speed * FrameTime() * 70 / (ply:IsOnGround() and 1200 or 8700)
 			
-			local magn = -0.13
 			local right, up = angles:Right(), angles:Up()
 			local sway1, sway2, sway3 = math.sin(bob), math.sin(bob*2)*0.8
-			local dip = math.Clamp(math.TimeFraction(0.32, 0.9, math.cos(bob*2+0.3)), 0, 1)
+			local dip = math.Clamp(math.TimeFraction(0.32, 0.9, math.cos(bob*2+0.3)), 0, 1)*dipMagn
 			
 			local diff = plyTable.jcms_viewBobDiffVector or Vector(0, 0, 0)
 			diff:SetUnpacked(0, 0, 0)
@@ -350,22 +369,12 @@ if CLIENT then
 			origin:Add(diff)
 		-- // }}
 
-		-- // FOV {{{
-			-- todo Sprint FOV
-		-- // }}}
-		
-		local view = {
-			origin = origin,
-			angles = angles,
-			fov = fov
-		}
-
 		plyTable.jcms_viewBobDip = dip
 		plyTable.jcms_viewBobProgress = bob
 		plyTable.jcms_viewBobDiffVector = diff
 		plyTable.jcms_viewBobFov = fov
-		
-		return view
+
+
 	end
 	
 	function class.TranslateActivity(ply, act)

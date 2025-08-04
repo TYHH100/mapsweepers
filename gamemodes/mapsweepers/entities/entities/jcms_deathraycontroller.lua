@@ -37,6 +37,7 @@ if SERVER then
 		self.beamTime = 0
 		self.beamRadius = 32
 		self.beamVelocity = Vector(0,0,0)
+		self.beamMultipliedVelocity = Vector(0,0,0)
 		self.beamLifeTime = 15
 		self.beamPrepTime = 2
 		
@@ -91,7 +92,7 @@ if SERVER then
 			if jcms.team_JCorp(target) then
 				priority = math.min(target:GetMaxHealth(), target:Health()) - self:DistanceSqrToTrace(tgpos, tr) - 10000000
 			else
-				priority = (1.5 * math.max(target:Health() - 5, 10))^2 - self:DistanceSqrToTrace(tgpos, tr)/2
+				priority = (1.5 * math.max(target:GetMaxHealth() - 5, 10))^2 - self:DistanceSqrToTrace(tgpos, tr)/2
 			end
 			
 			local beampos = self:GetPos()
@@ -159,7 +160,11 @@ if SERVER then
 		if selfTbl.beamTime <= selfTbl.beamLifeTime + selfTbl.beamPrepTime then
 			selfTbl.SlowThink(self)
 
-			self:SetPos(selfPos + selfTbl.beamVelocity*iv) --todo: Could optimise by removing vector multiplication
+			local x,y,z = selfTbl.beamVelocity:Unpack()
+			selfTbl.beamMultipliedVelocity:SetUnpacked( x*iv, y*iv, z*iv )
+			selfTbl.beamMultipliedVelocity:Add(selfPos)
+
+			self:SetPos(selfTbl.beamMultipliedVelocity)
 		else
 			self:Remove()
 		end

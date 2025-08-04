@@ -57,6 +57,7 @@ table.Empty(jcms.classesOrderIndices)
 		ply:ResetHull()
 		ply:SetGravity( data.gravity or 1 )
 		ply:SetBodyGroups( string.rep("0", 32) )
+		ply:SetNWInt("jcms_shield", 0)
 		ply.jcms_bounty = nil
 		ply.jcms_damageShare = nil
 		ply.jcms_faction = data.faction
@@ -122,14 +123,13 @@ table.Empty(jcms.classesOrderIndices)
 		end
 	end
 
-	if SERVER then
-		function jcms.class_GetData(ply)
-			return jcms.classes[ ply:GetNWString("jcms_class", "infantry") ]
-		end
-	elseif CLIENT then --Optimisation, the GetNW calls can get expensive here so we cache it.
-		function jcms.class_GetData(ply)
-			return jcms.classes[ ply:GetNWString("jcms_class", "infantry") ] --TODO: Temporary revert. 
-			--return jcms.classes[ jcms.cachedValues.playerClass ] --I'm assuming we're only getting our own data on client. This should always be true but keep it in mind - j
+	function jcms.class_GetData(ply)
+		return jcms.classes[ ply:GetNWString("jcms_class", "infantry") ]
+	end
+
+	if CLIENT then --Optimisation, the GetNW calls can get expensive here so we cache it.
+		function jcms.class_GetLocPlyData()
+			return jcms.classes[ jcms.cachedValues.playerClass ]
 		end
 	end
 
@@ -165,3 +165,10 @@ table.Empty(jcms.classesOrderIndices)
 	end
 
 -- // }}}
+
+hook.Add("PlayerPostThink", "jcms_ClassThink", function(ply)
+	local data = jcms.class_GetData(ply)
+	if data and data.Think then
+		data.Think(ply)
+	end
+end)

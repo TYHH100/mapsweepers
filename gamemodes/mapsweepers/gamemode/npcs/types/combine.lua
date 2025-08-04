@@ -26,6 +26,7 @@
 			npc:EmitSound("npc/combine_gunship/see_enemy.wav", 140, 80, 1, CHAN_AUTO, 0, 38) --Roar / Announce
 			npc:EmitSound("npc/strider/striderx_pain8.wav", 140, 80, 1, CHAN_AUTO, 0, 38)
 			timer.Simple(bPrep - 1.4, function()
+				if not IsValid(npc) then return end
 				npc:EmitSound("npc/strider/charging.wav", 140, 80, 0.75, CHAN_AUTO, 0, 0)
 			end)
 
@@ -42,6 +43,7 @@
 			npc.deathRay:SetBeamLifeTime(bLife)
 
 			npc.deathRay.DPS = bDPS
+			npc.deathRay.DPS_DIRECT = bDPS
 
 			npc.jcms_gunshipMoveStart = CurTime()
 			npc.jcms_npcState = jcms.NPC_STATE_GUNSHIPPRECHARGE
@@ -126,6 +128,9 @@
 		local ed = EffectData()
 		ed:SetOrigin(dmg:GetDamagePosition()) 
 		util.Effect("RPGShotDown", ed)
+
+		
+		npc:SetNWFloat("HealthFraction", npc.jcms_gunship_hits / npc.jcms_gunship_maxHits)
 	end
 
 -- // }}}
@@ -257,6 +262,8 @@ jcms.npc_types.combine_sniper = {
 		npc:GetActiveWeapon():SetSaveValue("m_fMinRange1", 256)
 		npc:GetActiveWeapon():SetSaveValue("m_fMaxRange1", 5000)
 		npc:SetSaveValue("m_flDistTooFar", 5000)
+		
+		npc.jcms_maxScaledDmg = 65
 	end,
 
 	proficiency = WEAPON_PROFICIENCY_VERY_GOOD
@@ -320,6 +327,7 @@ jcms.npc_types.combine_gunship = {
 
 	postSpawn = function(npc)
 		jcms.npc_Gunship_Setup(npc, 50)
+		npc:SetNWString("jcms_boss", "combine_gunship")
 
 		local healthMult = npc:GetMaxHealth() / (100 * 50) --Keep us scaling with default boss HP Scaling
 		npc.jcms_gunship_maxHits = math.floor(math.max(2 * healthMult, 2)) --2 Hits
@@ -394,6 +402,7 @@ jcms.npc_types.combine_cybergunship = {
 
 	postSpawn = function(npc)
 		jcms.npc_Gunship_Setup(npc, 20)
+		npc:SetNWString("jcms_boss", "combine_cybergunship")
 		
 		local healthMult = npc:GetMaxHealth() / (100 * 50) --Keep us scaling with default boss HP Scaling
 		npc.jcms_gunship_maxHits = math.floor(3 * healthMult) -- 3 Hits

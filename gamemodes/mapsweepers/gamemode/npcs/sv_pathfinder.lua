@@ -26,6 +26,9 @@ jcms.pathfinder = jcms.pathfinder or {}
 		jcms.pathfinder.airNodes = {} --air nodes
 		jcms.pathfinder.leafAirNodes = {} --Nodes for each leaf
 
+		--If something broke while reading don't generate any nodes, as that'll cause more issues down the line.
+		if not bspReader.pvsDataRead or not bspReader.leafDataRead or not bspReader.nodeDataRead or not bspReader.planeDataRead then return end
+
 		do --Detect skybox
 			local skyCam = ents.FindByClass("sky_camera")[1] --Should only be one of these.
 			
@@ -205,10 +208,10 @@ function jcms.pathfinder.navigate( startPoint, endPoint ) --A*
 	local startNode = (isvector(startPoint) and jcms.pathfinder.getNearestNodePVS( startPoint )) or startPoint
 	local endNode = (isvector(endPoint) and jcms.pathfinder.getNearestNodePVS( endPoint )) or endPoint
 
-	if not startNode then --fallback
+	if not startNode or isvector(startNode) then --fallback
 		startNode = jcms.pathfinder.getNearestNode( startPoint )
 	end
-	if not endNode then --fallback
+	if not endNode or isvector(endNode) then --fallback
 		endNode = jcms.pathfinder.getNearestNode( endPoint )
 	end
 

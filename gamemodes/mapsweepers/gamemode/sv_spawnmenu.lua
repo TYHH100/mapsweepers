@@ -484,12 +484,13 @@
 
 				local rad = 32
 
-				beam.Speed = 300
+				beam.Speed = 350
 				beam.beamRadius = rad
 				beam:SetPos(pos)
 				beam:Spawn()
 				
 				beam.deathRay.DPS = 90
+				beam.deathRay.DPS_DIRECT = 160
 				beam.deathRay:SetBeamRadius(rad)
 				beam.deathRay.jcms_owner = ply
 
@@ -632,7 +633,7 @@
 				local col = Color(255, 32, 32)
 				local boosted = jcms.isPlayerEngineer(ply)
 				local crate, flare = jcms.spawnmenu_Airdrop(pos, "jcms_restock", 10, "#jcms.restock", col)
-				crate:SetAmmoCashInside( 300 + (boosted and 200 or 0) )
+				crate:SetAmmoCashInside( 400 + (boosted and 200 or 0) )
 				crate:SetHealthInside( 0 )
 				crate:SetOwnerNickname( ply:Nick() )
 				crate:SetLocalAngularVelocity( AngleRand(48, 128) )

@@ -237,6 +237,35 @@
 				return ent
 			end
 		},
+
+		gunlocker = {
+			natural = true,
+			weight = 0.09,
+
+			check = function(area)
+				local wallspots, normals = jcms.prefab_GetWallSpotsFromArea(area, 60, 32)
+				
+				if #wallspots > 0 then
+					local rng = math.random(#wallspots)
+					return true, { pos = wallspots[rng], normal = normals[rng] }
+				else
+					return false
+				end
+			end,
+
+			stamp = function(area, data)
+				local ent = ents.Create("jcms_terminal")
+				if not IsValid(ent) then return end
+
+				ent:Spawn()
+				ent:SetColor(Color(87, 83, 34))
+				ent:InitAsTerminal("models/props/de_nuke/nuclearcontrolbox.mdl", "gunlocker")
+				ent:SetPos(data.pos)
+				ent:SetAngles(data.normal:Angle())
+
+				return ent
+			end
+		},
 		
 		barricades = {
 			natural = true,
@@ -385,7 +414,9 @@
 					ent:SetSpawnerType(jcms.director.faction)
 				end
 
-				ent:SetPos(area:GetCenter() + Vector(0, 0, 24))
+				local v = jcms.mapgen_AreaPointAwayFromEdges(area, 64)
+				v.z = v.z + 24
+				ent:SetPos(v)
 				ent:Spawn()
 				return ent
 			end
@@ -393,7 +424,7 @@
 
 		thumper = {
 			check = function(area)
-				local center = area:GetCenter()
+				local center = jcms.mapgen_AreaPointAwayFromEdges(area, 200)
 				local tr = util.TraceHull { start = center, endpos = center + Vector(0, 0, 100), mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 64) }
 				
 				if not tr.Hit then
@@ -429,7 +460,7 @@
 
 		flashpoint = {
 			check = function(area)
-				local centre = area:GetCenter()
+				local centre = jcms.mapgen_AreaPointAwayFromEdges(area, 150)
 
 				local checkLength = 100
 				local checkAngle = Angle(0, 0, 30)
@@ -476,7 +507,7 @@
 
 		thumpersabotage = {
 			check = function(area)
-				local center = area:GetCenter()
+				local center = jcms.mapgen_AreaPointAwayFromEdges(area, 128)
 				local tr = util.TraceHull { start = center, endpos = center + Vector(0, 0, 100), mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 64) }
 				
 				if not tr.Hit then
@@ -614,7 +645,7 @@
 
 		zombiebeacon = {
 			check = function(area)
-				local center = area:GetCenter()
+				local center = jcms.mapgen_AreaPointAwayFromEdges(area, 250)
 				local tr = util.TraceHull { start = center, endpos = center + Vector(0, 0, 100), mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 64) }
 				
 				if not tr.Hit then

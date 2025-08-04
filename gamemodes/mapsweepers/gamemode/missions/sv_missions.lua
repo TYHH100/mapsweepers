@@ -68,67 +68,85 @@
 -- // Logic {{{
 
 	function jcms.mission_Start(missionType, factionType)
-		math.randomseed( os.time() - CurTime() * ( math.pi / 4 ) )
+		local co = coroutine.create( function()
+			math.randomseed( os.time() - CurTime() * ( math.pi / 4 ) )
 
-		local data = assert(jcms.missions[ missionType ], "invalid mission type: " .. tostring(missionType))
-		
-		if data.faction == "any" then
-			assert(jcms.factions[ factionType ], "invalid faction: " .. tostring(factionType))
-		else
-			factionType = data.faction
-		end
-
-		if data.orders and table.Count(data.orders) > 0 then
-			timer.Simple(10, function()
-				for i, ply in ipairs(jcms.GetLobbySweepers()) do
-					jcms.director_TryShowTip(ply, jcms.HINT_UNIQUEORDERS)
-				end
-			end)
-		end
-
-		game.CleanUpMap()
-		jcms.recolorAllDollies()
-		
-		game.GetWorld():SetNWString("jcms_missiontype", missionType)
-		game.GetWorld():SetNWString("jcms_missionfaction", factionType)
-
-		jcms.director_Prepare( factionType )
-		jcms.director.missionType = missionType
-		jcms.director.encounterTriggerLast = jcms.director.missionStartTime + 10
-		jcms.director.phrasesOverride = data.phrasesOverride
-		
-		local success, genRtn = pcall(jcms.mapgen_FromMission, data)
-		if success then
-			-- // Mission-Specific Orders {{{
-				for k, order in pairs(jcms.orders) do 
-					if order.missionSpecific then 
-						jcms.orders[k] = nil
-						jcms.net_RemoveOrder(k)
-					end
-				end
-
-				if data.orders then
-					for k, order in pairs(data.orders) do 
-						jcms.orders[k] = order
-						jcms.net_SendOrder(k, order)
-					end
-				end
-			-- // }}}
-
-			if jcms.director.commander and jcms.director.commander.placePrefabs then 
-				jcms.director.commander:placePrefabs(data)
-			end
+			local data = assert(jcms.missions[ missionType ], "invalid mission type: " .. tostring(missionType))
 			
-			jcms.orders_ClearAllCooldowns()
-			jcms.net_SendMissionBeginning()
-			
-			if not jcms.validMapOptions then
-				jcms.validMapOptions = jcms.generateValidMapOptions()
+			if data.faction == "any" then
+				assert(jcms.factions[ factionType ], "invalid faction: " .. tostring(factionType))
+			else
+				factionType = data.faction
 			end
-		else
-			jcms.director = nil
-			ErrorNoHalt("Mission generation failed!\n"..tostring(genRtn))
-		end
+
+			game.CleanUpMap()
+			jcms.recolorAllDollies()
+			
+			game.GetWorld():SetNWString("jcms_missiontype", missionType)
+			game.GetWorld():SetNWString("jcms_missionfaction", factionType)
+
+			jcms.director_Prepare( factionType )
+			jcms.director.missionType = missionType
+			jcms.director.encounterTriggerLast = jcms.director.missionStartTime + 10
+			jcms.director.phrasesOverride = data.phrasesOverride
+		
+			local success, genRtn = pcall(jcms.mapgen_FromMission, data)
+			if success then
+				jcms.runprogress_SetLastMission()
+				jcms.director.fullyInited = true
+
+				-- // Mission-Specific Orders {{{
+					for k, order in pairs(jcms.orders) do 
+						if order.missionSpecific then 
+							jcms.orders[k] = nil
+							jcms.net_RemoveOrder(k)
+						end
+					end
+
+					if data.orders then
+						for k, order in pairs(data.orders) do 
+							jcms.orders[k] = order
+							jcms.net_SendOrder(k, order)
+						end
+					end
+				-- // }}}
+
+				if jcms.director.commander and jcms.director.commander.placePrefabs then 
+					jcms.director.commander:placePrefabs(data)
+				end
+				
+				jcms.orders_ClearAllCooldowns()
+				jcms.net_SendMissionBeginning()
+				
+				if not jcms.validMapOptions then
+					jcms.validMapOptions = jcms.generateValidMapOptions()
+				end
+				
+				if data.orders and table.Count(data.orders) > 0 then
+					timer.Simple(10, function()
+						for i, ply in ipairs(jcms.GetLobbySweepers()) do
+							jcms.director_TryShowTip(ply, jcms.HINT_UNIQUEORDERS)
+						end
+					end)
+				end
+			else
+				jcms.director = nil
+				ErrorNoHalt("Mission generation failed!\n"..tostring(genRtn))
+				PrintMessage(HUD_PRINTTALK, "[Map Sweepers] Mission failed to generate, switching mission as a fall-back.")
+				jcms.mission_Randomize()
+			end
+
+			game.GetWorld():SetNWFloat("jcms_mapgen_progress", 1)
+			return true
+		end)
+
+		timer.Create( "jcms_mission_run", 0.01, 0, function()
+			local success, shouldEnd = coroutine.resume(co)
+			if shouldEnd then 
+				timer.Remove("jcms_mission_run")
+				game.GetWorld():SetNWFloat("jcms_mapgen_progress", 1)
+			end
+		end)
 	end
 
 	function jcms.mission_StartFromCVar() -- Artifact name of the function.
@@ -136,6 +154,7 @@
 	end
 
 	function jcms.mission_Clear()
+		game.GetWorld():SetNWFloat("jcms_mapgen_progress", -1)
 		jcms.director = nil
 
 		for i, ply in ipairs(player.GetAll()) do
@@ -154,16 +173,16 @@
 	end
 
 	function jcms.mission_Randomize()
-		local newType = jcms.mission_GetRandomType( jcms.util_GetMissionType() )
+		local lastMis, lastFac = jcms.runprogress_GetLastMissionTypes()
+		local newType = jcms.mission_GetRandomType( lastMis )
 		local data = assert(jcms.missions[ newType ], "error randomizing mission type, picked an invalid one: '" .. tostring(newType) .. "'")
 		
 		game.GetWorld():SetNWString("jcms_missiontype", newType)
 		if data.faction == "any" then
-			local currentFaction = jcms.util_GetMissionFaction()
 			local otherFactions = {}
 			
 			for i, faction in ipairs(jcms.factions_GetOrder()) do
-				otherFactions[ faction ] = (currentFaction == currentEnemies) and 0.000001 or 1
+				otherFactions[ faction ] = (currentFaction == lastFac) and 0.000001 or 1
 			end
 
 			local newFaction = jcms.util_ChooseByWeight(otherFactions)
@@ -174,13 +193,13 @@
 	end
 
 	function jcms.mission_GenerateVoteOptions()
-		local t = {}
+		local maps = {}
 
 		local excludeCurrent = jcms.cvar_map_excludecurrent:GetBool()
 		local numberOfOptions = math.Clamp(jcms.cvar_map_votecount:GetInt(), 1, 15)
 
 		if not excludeCurrent then
-			table.insert(t, game.GetMap())
+			maps[game.GetMap()] = false
 		end
 
 		local mapDict = {}
@@ -194,20 +213,35 @@
 		
 		table.Shuffle(jcms.validMapOptions)
 		for i, map in ipairs(jcms.validMapOptions) do
-			if #t < numberOfOptions then
+			if table.Count(maps) < numberOfOptions then
 				if isWhitelist == (not not mapDict[map]) then -- Both are true, or both are false.
-					table.insert(t, map)
+					maps[map] = false
 				end
 			else
 				break
 			end
 		end
 
-		if (#t == 0) then -- Failsafe
-			t[1] = game.GetMap()
+		if (table.Count(maps) == 0) then -- Failsafe
+			maps[game.GetMap()] = false
 		end
 
-		return t
+		-- Get WSID of the maps
+		if not game.SinglePlayer() then
+			for _, addon in ipairs( engine.GetAddons() ) do
+				if addon.wsid and addon.mounted and addon.title then
+					local files = file.Find( "maps/*.bsp", addon.title )
+					for _, fil in ipairs( files ) do
+						local mapName = string.StripExtension(fil)
+						if maps[mapName] ~= nil then
+							maps[mapName] = addon.wsid
+						end
+					end
+				end
+			end
+		end
+
+		return maps
 	end
 
 	function jcms.mission_End(victory)
@@ -317,7 +351,7 @@
 	end
 
 	hook.Add("Think", "jcms_PreGameLogic", function()
-		local isOngoing = not not jcms.director
+		local isOngoing = (jcms.director and jcms.director.fullyInited) or false
 
 		if game.GetWorld():GetNWBool("jcms_ongoing", false) ~= isOngoing then
 			game.GetWorld():SetNWBool("jcms_ongoing", isOngoing)
@@ -325,6 +359,7 @@
 
 		if isOngoing then
 			-- The game is ongoing. We can spawn the players.
+			game.GetWorld():SetNWFloat("jcms_mapgen_progress", -1)
 
 			if not jcms.director.gameover then
 				for i, ply in player.Iterator() do
@@ -369,11 +404,11 @@
 				local desiredTeam = ply:GetNWInt("jcms_desiredteam", 0)
 				local ready = ply:GetNWBool("jcms_ready", false)
 
-				if desiredTeam <= 1 then
+				if isnumber(desiredTeam) and desiredTeam <= 1 then
 					potentialMaxPlayers = potentialMaxPlayers + 1
 				end
 
-				if desiredTeam == 1 and ready then
+				if isnumber(desiredTeam) and desiredTeam == 1 and ready then
 					readySweepers = readySweepers + 1
 				end
 			end
@@ -393,6 +428,7 @@
 			end
 
 			if timerIsGoing and CurTime() >= startTime then
+				game.GetWorld():SetNWFloat("jcms_mapgen_progress", 0.01)
 				jcms.mission_StartFromCVar()
 			end
 		end

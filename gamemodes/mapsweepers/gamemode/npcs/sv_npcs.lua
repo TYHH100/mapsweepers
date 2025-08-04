@@ -186,9 +186,10 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 			local plyCount = jcms.director and jcms.director.livingPlayers or 1
 
 			--Add 50% of the boss's base HP to its pool for each player over 1.
-			local mult = 0.5 * math.Max(plyCount-1, 0)
-			npc:SetMaxHealth(npcMHP * (1 + mult) * jcms.runprogress_GetDifficulty())
-			npc:SetHealth(npcHP * (1 + mult) * jcms.runprogress_GetDifficulty())
+			local mult = 0.55 * math.Max(plyCount-1, 0)
+			local scalar = ((1 + mult) * jcms.runprogress_GetDifficulty()) ^ (3/4) --Starts to taper off if it gets too ridiculously high.
+			npc:SetMaxHealth(npcMHP * scalar)
+			npc:SetHealth(npcHP * scalar)
 
 			npcTbl.jcms_bounty = npcTbl.jcms_bounty * (1 + mult/2) --25% increase in bounty per player to keep the economy vaguely similar.
 		end
@@ -254,7 +255,7 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 			local ed = EffectData()
 			ed:SetColor(colorInteger)
 			ed:SetFlags(1)
-			ed:SetOrigin(pos + Vector(0, 0, 256))
+			ed:SetOrigin(pos + Vector(0, 0, -40))
 			ed:SetStart(pos + Vector(0, 0, 40))
 			ed:SetMagnitude(delay)
 			ed:SetScale(enemyData.portalScale or 1)
@@ -301,6 +302,10 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 
 		if #npcs <= 3 then return end -- We only handle stragglers if there's at least a small squad of them.
 
+		if not ainReader.nodePositions then 
+			jcms.mapgen_TryReadNodeData()
+			if not ainReader.nodePositions then return end
+		end
 
 
 		--Get the eyePositions of our sweepers to use later
@@ -426,41 +431,29 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 		end
 	end
 
-	local nmt = FindMetaTable("NPC")
 	function jcms.npc_UpdateRelations(ent)
-		local buddies, baddies = {}, {}
+		local entRelFunc = ent.AddEntityRelationship
 		
 		local function iterateEnts(entList) 
 			for i, oent in ipairs(entList) do 
-				local same = jcms.team_SameTeam(ent, oent)
+				local oentRelFunc = oent.AddEntityRelationship
+				local same = (entRelFunc or oentRelFunc) and jcms.team_SameTeam(ent, oent)
 				
-				if getmetatable(oent) == nmt then
-					if same then
-						nmt.AddEntityRelationship(oent, ent, D_LI, 1)
-					else
-						nmt.AddEntityRelationship(oent, ent, D_HT, 0)
-					end
+				if oentRelFunc then
+					oentRelFunc(oent, ent, same and D_LI or D_HT, same and 1 or 0)
 				end
 	
-				table.insert(same and buddies or baddies, oent)
+				if entRelFunc then
+					entRelFunc(ent, oent, same and D_LI or D_HT, same and 1 or 0)
+				end
 			end
 		end
-
+	
 		--More optimised than ents.iterator, as we don't have to check huge amounts of point entities (like ai nodes)
 		--NOTE: Assumes all npcs are have npc_ classnames. This is not an issue for default npcs, but could be a problem for other npc packs.
 		iterateEnts(ents.FindByClass("jcms_*"))
 		iterateEnts(ents.FindByClass("npc_*"))
 		iterateEnts(player.GetAll())
-
-		if getmetatable(ent) == nmt then
-			for i, buddy in ipairs(buddies) do
-				nmt.AddEntityRelationship(ent, buddy, D_LI, 1)
-			end
-	
-			for i, baddy in ipairs(baddies) do
-				nmt.AddEntityRelationship(ent, baddy, D_HT, 0)
-			end
-		end
 	end
 
 	function jcms.npc_SetupSweeperShields(npc, max, regen, regenDelay, col)

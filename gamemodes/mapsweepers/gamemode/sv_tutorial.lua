@@ -42,7 +42,7 @@ hook.Add("InitPostEntity", "jcms_TutorialBuild", function()
 	jcms.tutorialEnts._terminal1 = terminal
 end)
 
-hook.Add("player_activate", "jcms_tutorialOnActivate", function(data)
+hook.Add("jcms_PlayerNetReady", "jcms_tutorialOnActivate", function(data)
 	local objectives = {
 		{ type = "tutorialphase0", progress = 0, total = 0 }
 	}
@@ -182,7 +182,7 @@ hook.Add("Think", "jcms_TutorialThink", function()
 				weapon_crossbow = 699
 			}
 			
-			jcms.net_SendManyWeapons(jcms.weapon_prices, ply)
+			jcms.net_SendWeaponPrices(jcms.weapon_prices, ply)
 		end
 		
 		if #ply:GetWeapons() > 1 then

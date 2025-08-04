@@ -118,7 +118,7 @@
 				end
 
 				timer.Simple(30, function()
-					if soundPatch then
+					if IsValid(soundPatch) then
 						soundPatch:Stop()
 					end
 					
@@ -201,6 +201,12 @@ jcms.npc_types.antlion_worker = {
 		if not npc.jcms_fromPortal then
 			npc:Fire "Unburrow"
 			npc.jcms_shouldUnburrow = true
+
+			timer.Simple(60, function() --fall-back
+				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
+					npc:Remove()
+				end
+			end)
 		end
 	end,
 	
@@ -248,6 +254,12 @@ jcms.npc_types.antlion_drone = {
 		if not npc.jcms_fromPortal then
 			npc:Fire "Unburrow"
 			npc.jcms_shouldUnburrow = true
+			
+			timer.Simple(60, function() --fall-back
+				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
+					npc:Remove()
+				end
+			end)
 		end
 	end
 }
@@ -308,6 +320,12 @@ jcms.npc_types.antlion_waster = {
 		if not npc.jcms_fromPortal then
 			npc:Fire "Unburrow"
 			npc.jcms_shouldUnburrow = true
+			
+			timer.Simple(60, function() --fall-back
+				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
+					npc:Remove()
+				end
+			end)
 		end
 	end,
 }
@@ -340,6 +358,16 @@ jcms.npc_types.antlion_guard = {
 		local hp = math.ceil(npc:GetMaxHealth()*1.5)
 		npc:SetMaxHealth(hp)
 		npc:SetHealth(hp)
+		
+		npc:SetNWString("jcms_boss", "antlion_guard")
+	end,
+
+	takeDamage = function(npc, dmg)
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+			end
+		end)
 	end,
 
 	timerMin = 0.1,
@@ -348,6 +376,12 @@ jcms.npc_types.antlion_guard = {
 		if not npc.jcms_fromPortal then
 			npc:Fire "Unburrow"
 			npc.jcms_shouldUnburrow = true
+
+			timer.Simple(60, function() --fall-back
+				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
+					npc:Remove()
+				end
+			end)
 		end
 	end,
 
@@ -384,6 +418,8 @@ jcms.npc_types.antlion_cyberguard = {
 		local hp = math.ceil( npc:GetMaxHealth())
 		npc:SetMaxHealth(hp)
 		npc:SetHealth(hp)
+		
+		npc:SetNWString("jcms_boss", "antlion_cyberguard")
 	end,
 
 	think = function(npc, state)
@@ -415,6 +451,12 @@ jcms.npc_types.antlion_cyberguard = {
 		if dmg > 0.3 then
 			dmgInfo:SetDamage( math.max(dmg - 4, 0.3) )
 		end
+		
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+			end
+		end)
 	end,
 	
 	check = function(director)
@@ -445,6 +487,8 @@ jcms.npc_types.antlion_ultracyberguard = {
 		npc.jcms_dmgMult = 0.75
 		npc.jcms_uCyberguard_nextBeam = CurTime() -- + 10
 		npc.jcms_uCyberguard_stage2 = false
+
+		npc:SetNWString("jcms_boss", "antlion_ultracyberguard")
 	end,
 
 	think = function(npc, state)
@@ -525,6 +569,12 @@ jcms.npc_types.antlion_ultracyberguard = {
 		if dmg > 0.3 then
 			dmgInfo:SetDamage( math.max(dmg - 4, 0.3) )
 		end
+		
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+			end
+		end)
 	end
 }
 
@@ -542,5 +592,7 @@ jcms.npc_types.antlion_reaper = {
 
 	postSpawn = function(npc)
 		npc:SetMaxLookDistance(3000)
+		
+		npc.jcms_maxScaledDmg = 65
 	end
 }

@@ -258,6 +258,66 @@ jcms.terminal_modeTypes = {
 			return locked and "0" or "1"
 		end
 	},
+
+	gunlocker = {
+		command = function(ent, cmd, data, ply)
+			local locked = ent:GetNWBool("jcms_terminal_locked")
+
+			if cmd == 1 and not locked and data ~= "" then
+				local oldValue = ply.jcms_canGetWeapons
+				ply.jcms_canGetWeapons = true
+				ply:Give(ent.jcms_weaponclass)
+				ply.jcms_canGetWeapons = oldValue
+
+				local gunstats = jcms.gunstats_GetExpensive(ent.jcms_weaponclass)
+				if gunstats then
+					jcms.net_NotifyGeneric(ply, jcms.NOTIFY_OBTAINED, gunstats.name or "#"..ent.jcms_weaponclass)
+				end
+				return true, ""
+			elseif cmd == 2 and locked then
+				jcms.terminal_ToUnlock(ent)
+				return true
+			end
+		end,
+		
+		generate = function(ent)
+			if not ent.jcms_weaponclass then
+				local starterCash = jcms.cvar_cash_start:GetInt()
+				local evacCash = jcms.cvar_cash_evac:GetInt()
+				local winCash = jcms.cvar_cash_victory:GetInt()
+
+				--not accounting for clerks because I couldn't be bothered.
+				local totalCash = starterCash + (evacCash + winCash) * jcms.runprogress.winstreak
+
+				local weights = {}
+				for k,v in pairs(jcms.weapon_prices) do
+					if v <= 0 then continue end
+					--weights[k] = (v <= 3200 and (v/5) or (math.min(20000, v)^1.12 + 6000)) / 100
+					local cost = v * jcms.util_GetLobbyWeaponCostMultiplier()
+
+					if cost < totalCash * 0.5 then							--Not possible
+						weights[k] = nil
+					elseif cost < totalCash then							--Rapid fall off
+						weights[k] = ((cost*2 / totalCash) - 1)^3 
+					elseif cost >= totalCash and cost <= totalCash * 2 then	--Equally likely
+						weights[k] = 1 
+					else												--Fall-off but never reach 0
+						weights[k] = 1 / (cost / totalCash - 1)
+					end
+				end
+
+				local chosen = jcms.util_ChooseByWeight(weights)
+				
+				if not chosen then
+					chosen = "weapon_crowbar"
+				end
+
+				ent.jcms_weaponclass = chosen
+			end
+
+			return ent.jcms_weaponclass
+		end
+	},
 	
 	shop = {
 		command = function(ent, cmd, data, ply)
@@ -661,6 +721,66 @@ jcms.terminal_modeTypes = {
 			end
 			
 			return false
+		end
+	},
+
+	jeechblock = {
+		weight = 1,
+
+		generate = function(ent)
+			local str = ""
+
+			ent:StopSound("ambient/atmosphere/tone_alley.wav")
+
+			if math.random() < 0.001 then
+				str = "ILOVEJCORP"
+				if math.random() < 0.1 then
+					str = math.random() < 0.5 and "RUN" or "BEHINDYOU"
+					ent:EmitSound("ambient/atmosphere/tone_alley.wav", 75, 90, 1, CHAN_STATIC)
+				end
+			else
+				for i=1, 10 do
+					str = str .. string.char(math.random() < 0.75 and math.random(0x41, 0x5a) or math.random(0x30, 0x39))
+				end
+			end
+			
+			return str .. " "
+		end,
+
+		command = function(ent, cmd, data, ply)
+			local sample = "1234567890QWERTYUIOP-ASDFGHJKL+ZXCVBNM_"
+			local char = sample:sub(cmd, cmd)
+
+			local parts = data:Split(" ")
+
+			if char then
+				if char == "-" then
+					local newWord = parts[2]:sub(1, -2)
+					return #parts[2]>0, parts[1] .. " " .. newWord
+				elseif char == "+" then
+					if parts[1] == parts[2] then
+						jcms.terminal_Unlock(ent, ply, true)
+						ent:StopSound("ambient/atmosphere/tone_alley.wav")
+						return true, data
+					else
+						jcms.terminal_Punish(ent, ply)
+						ent:EmitSound("buttons/button8.wav", 75, 110, 1.0)
+						return true, parts[1] .. " " .. parts[2]
+					end
+				elseif char == "_" then
+					return (parts[2] and #parts[2]>0), parts[1] .. " "
+				else
+					if parts[2] and #parts[2] > #parts[1] + 5 then
+						jcms.terminal_Punish(ent, ply)
+						ent:EmitSound("buttons/button8.wav", 75, 110, 1.0)
+						return true, parts[1] .. " "
+					else
+						return true, data .. char
+					end
+				end
+			else
+				return false
+			end
 		end
 	}
 }

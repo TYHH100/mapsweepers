@@ -222,6 +222,10 @@ jcms.offgame = jcms.offgame or NULL
 
 	-- Lobby {{{
 		function jcms.offgame_ShowPreMission()
+			if CustomChat then --Integration, stops drawing over the lobby.
+				CustomChat:Disable()
+			end
+
 			local pnl = makeBasePanel(jcms.offgame_paint_LobbyFrame)
 
 			-- Primary {{{
@@ -388,7 +392,6 @@ jcms.offgame = jcms.offgame or NULL
 								elem.Paint = jcms.paint_PlayerLobby
 								elem.player = ply
 								elem.classMats = self.classMats
-								elem.gunMats = jcms.gunMats
 								elem.gunStats = self.gunStats
 								self.elementDict[ ply ] = elem
 
@@ -463,7 +466,6 @@ jcms.offgame = jcms.offgame or NULL
 								elem.Paint = jcms.paint_PlayerLobbyNPC
 								elem.player = ply
 								elem.classMats = self.classMats
-								elem.gunMats = jcms.gunMats
 								elem.gunStats = self.gunStats
 								self.elementDict[ ply ] = elem
 
@@ -559,6 +561,13 @@ jcms.offgame = jcms.offgame or NULL
 		function jcms.offgame_BuildMissionTab(tab)
 			tab.Paint = jcms.offgame_paint_MissionTab
 
+			local favclass = jcms.cvar_favclass:GetString()
+			if jcms.classes[ favclass ] then
+				timer.Simple(0.1, function()
+					RunConsoleCommand("jcms_setclass", favclass)
+				end)
+			end
+
 			if game.SinglePlayer() then
 				local y = 220
 
@@ -589,6 +598,7 @@ jcms.offgame = jcms.offgame or NULL
 				bChangeMission.jFont = "jcms_medium"
 				function bChangeMission:DoClick()
 					jcms.offgame_ModalChangeMission()
+					surface.PlaySound("buttons/button14.wav")
 				end
 			else
 				y = 128
@@ -619,15 +629,8 @@ jcms.offgame = jcms.offgame or NULL
 				bJoinNPC.Paint = jcms.paint_ButtonFilled
 				bJoinNPC.jFont = "jcms_medium"
 				function bJoinNPC:DoClick()
-					tab.Paint = jcms.offgame_paint_MissionPrepTab
-
-					for i, child in ipairs( tab:GetChildren() ) do
-						child:Remove()
-					end
-
 					surface.PlaySound("buttons/button14.wav")
-					--jcms.offgame_BuildMissionPrepTab(tab) -- TODO
-					RunConsoleCommand("jcms_jointeam", "2")
+					jcms.offgame_ModalJoinNPC(tab)
 				end
 				y = y + 64 + 8
 
@@ -640,6 +643,7 @@ jcms.offgame = jcms.offgame or NULL
 					bChangeMission.jFont = "jcms_medium"
 					function bChangeMission:DoClick()
 						jcms.offgame_ModalChangeMission()
+						surface.PlaySound("buttons/button14.wav")
 					end
 				end
 
@@ -654,7 +658,7 @@ jcms.offgame = jcms.offgame or NULL
 				tutor.jText = "#jcms.menututor_title"
 
 				local tutorImg = tutor:Add("DImage")
-				tutorImg:SetImage("maps/jcms_tutorial.png")
+				tutorImg:SetImage("jcms/tutorialicon.png")
 				tutorImg:SetSize(128, 128)
 				tutorImg:Center()
 				tutorImg:SetY( tutorImg:GetY() - 32)
@@ -709,8 +713,6 @@ jcms.offgame = jcms.offgame or NULL
 		end
 
 		function jcms.offgame_BuildMissionPrepTab(tab)
-			jcms.gunMats = jcms.gunMats or {}
-			
 			-- Class {{{
 				tab.classPnl = tab:Add("DPanel")
 				tab.classPnl:SetPos(32, 32)
@@ -762,6 +764,7 @@ jcms.offgame = jcms.offgame or NULL
 				local function cbtnClick(self)
 					RunConsoleCommand("jcms_setclass", self.classname)
 					surface.PlaySound("weapons/slam/mine_mode.wav")
+					jcms.cvar_favclass:SetString(self.classname)
 				end
 
 				local minimizeButtons = #jcms.classesOrder > 4
@@ -788,7 +791,6 @@ jcms.offgame = jcms.offgame or NULL
 				tab.loadoutPnl:SetSize(800, tab:GetTall() - tab.loadoutPnl:GetY() - tab.loadoutPnl:GetTall())
 				tab.loadoutPnl.Paint = jcms.offgame_paint_LoadoutPanel
 				tab.loadoutPnl.gunStats = {}
-				tab.loadoutPnl.gunMats = jcms.gunMats
 				tab.loadoutPnl.weaponButtons = {}
 
 				tab.loadoutPnl.randomLoadout = tab.loadoutPnl:Add("DImageButton")
@@ -931,6 +933,8 @@ jcms.offgame = jcms.offgame or NULL
 					end
 
 					for weapon, cost in pairs(jcms.weapon_prices) do
+						if cost <= 0 then continue end
+						
 						local category = self:CategorizeGun(weapon)
 						if not categorizedGuns[ category ] then
 							categorizedGuns[ category ] = { weapon }
@@ -1015,7 +1019,6 @@ jcms.offgame = jcms.offgame or NULL
 							local wbtn = gunicos:Add("DButton")
 							wbtn:SetSize(bsize, bsize)
 							wbtn.Paint = jcms.paint_Gun
-							wbtn.gunMats = jcms.gunMats
 							wbtn.gunStats = tab.loadoutPnl.gunStats[class]
 							wbtn.gunClass = class 
 							wbtn.DoClick = wbtnClick
@@ -1422,7 +1425,7 @@ jcms.offgame = jcms.offgame or NULL
 
 				local thanks = creditsContainer:Add("DPanel")
 				thanks.jText = "#jcms.credits_thanks"
-				thanks.peopleList = { "UberJ", "Acheron Panda", "Ady", "Basto3456", "bonsto", "CadetTrev", "lordpatek", "luigikart87", "Malyko", "mr.murdersalot", "oreiboon", "sgt_sas1905", "TalonSolid/Redline", "TH3LOAD3R", "TheOfficialJaydee", "Triaki", "nonsensicalhumanoid", "Szabi", "emnil", "paulchartres", "Endy0396", "Marum", "Pushnidze", "thecraftianman" }
+				thanks.peopleList = { "UberJ", "Acheron Panda", "Ady", "Basto3456", "bonsto", "CadetTrev", "lordpatek", "luigikart87", "Malyko", "mr.murdersalot", "oreiboon", "sgt_sas1905", "TalonSolid/Redline", "TH3LOAD3R", "TheOfficialJaydee", "Triaki", "nonsensicalhumanoid", "Szabi", "emnil", "paulchartres", "Endy0396", "Marum", "Pushnidze", "thecraftianman", "Redox", "boblikut" }
 				table.sort(thanks.peopleList)
 				thanks.Paint = jcms.offgame_paint_CreditsPanelPeopleList
 				thanks.columnCount = 2
@@ -1773,11 +1776,12 @@ jcms.offgame = jcms.offgame or NULL
 				surface.PlaySound("buttons/combine_button2.wav")
 				local entry = jcms.bestiary[ b.entryName ]
 				imageArea.entry = entry
+				imageArea.entryName = language.GetPhrase("#jcms.bestiary_" .. b.entryName)
 				imageArea.factionMat = Material("jcms/factions/" .. tostring(entry.faction) .. ".png")
 				imageArea.anim = 0
 				
-				descArea.name = entry.name
-				descArea.jText = entry.desc
+				descArea.name = language.GetPhrase("jcms.bestiary_" .. b.entryName)
+				descArea.jText = language.GetPhrase("jcms.bestiary_" .. b.entryName .. "_desc")
 				descArea.markup = nil
 
 				if type(entry.doModel) == "function" then
@@ -1843,7 +1847,7 @@ jcms.offgame = jcms.offgame or NULL
 				for j, entryName in ipairs(entryNames) do
 					local entry = jcms.bestiary[ entryName ]
 					local b = scrollArea:Add("DButton")
-					b:SetText(entry.name)
+					b:SetText(language.GetPhrase("jcms.bestiary_"..entryName))
 					b:Dock(TOP)
 					b:DockMargin(0, 0, 0, 4)
 					b.entryName = entryName
@@ -1932,34 +1936,24 @@ jcms.offgame = jcms.offgame or NULL
 					content:DockPadding(0, 0, 0, 16)
 					bar:SetContents(content)
 
-					local cb
-					cb = content:Add("DCheckBoxLabel")
-					cb:SetPos(24, 16)
-					cb:SetText("#jcms.opt_announcer")
-					cb:SetWide(400)
-					cb:SetConVar("jcms_announcer")
-					cb.Paint = jcms.paint_CheckBoxLabel
-
-					cb = content:Add("DCheckBoxLabel")
-					cb:SetPos(24, 16 + 24)
-					cb:SetText("#jcms.opt_imperial")
-					cb:SetWide(400)
-					cb:SetConVar("jcms_imperial")
-					cb.Paint = jcms.paint_CheckBoxLabel
-
-					cb = content:Add("DCheckBoxLabel")
-					cb:SetPos(24, 16 + 24*2)
-					cb:SetText("#jcms.opt_motionsickness")
-					cb:SetWide(400)
-					cb:SetConVar("jcms_motionsickness")
-					cb.Paint = jcms.paint_CheckBoxLabel
-
-					cb = content:Add("DCheckBoxLabel")
-					cb:SetPos(24, 16 + 24*3)
-					cb:SetText("#jcms.opt_nomusic")
-					cb:SetWide(400)
-					cb:SetConVar("jcms_nomusic")
-					cb.Paint = jcms.paint_CheckBoxLabel
+					local checkboxes = { 
+						{ loc = "announcer", cvar = "announcer" },
+						{ loc = "imperial", cvar = "imperial" },
+						{ loc = "motionsickness", cvar = "motionsickness" },
+						{ loc = "nomusic", cvar = "nomusic" },
+						{ loc = "novignette", cvar = "hud_novignette" },
+						{ loc = "nocolourfilter", cvar = "hud_nocolourfilter" },
+						{ loc = "noneardeathfilter", cvar = "hud_noneardeathfilter" }
+					}
+					
+					for i, cbdata in ipairs(checkboxes) do
+						local cb = content:Add("DCheckBoxLabel")
+						cb:SetPos(24, 16 + 24 * (i-1))
+						cb:SetText("#jcms.opt_" .. cbdata.loc)
+						cb:SetWide(400)
+						cb:SetConVar("jcms_" .. cbdata.cvar)
+						cb.Paint = jcms.paint_CheckBoxLabel
+					end
 				end
 				-- }}}
 
@@ -2662,6 +2656,50 @@ jcms.offgame = jcms.offgame or NULL
 				end
 			end
 		end
+
+		function jcms.offgame_ModalJoinNPC(tab)
+			local frame = jcms.offgame:Add("DFrame")
+			
+			surface.SetFont("jcms_medium")
+			local tw, th = surface.GetTextSize("#jcms.modal_joinasnpc_description1")
+
+			frame:SetSize(math.max(500, tw + 24 *2), 172)
+			frame:Center()
+			frame:SetDraggable(false)
+			frame:SetBackgroundBlur(true)
+			frame:SetDrawOnTop(true)
+			frame:ShowCloseButton(false)
+			frame:SetTitle("")
+			frame.Paint = jcms.paint_ModalJoinNPC
+
+			local close = frame:Add("DButton")
+			close:SetText("x")
+			close:SetSize(64, 24)
+			close:SetPos(frame:GetWide() - close:GetWide() - 8, 8)
+			function close:DoClick()
+				frame:Remove()
+			end
+			close.Paint = jcms.paint_ButtonFilled
+
+			local confirm = frame:Add("DButton")
+			confirm:SetText("#jcms.confirm")
+			confirm:SetSize(200, 24)
+			confirm:SetY( frame:GetTall() - confirm:GetTall() - 12 )
+			confirm:CenterHorizontal(0.5)
+			confirm.Paint = jcms.paint_Button
+			function confirm:DoClick()
+				tab.Paint = jcms.offgame_paint_MissionPrepTab
+
+				for i, child in ipairs( tab:GetChildren() ) do
+					child:Remove()
+				end
+
+				RunConsoleCommand("jcms_jointeam", "2")
+				surface.PlaySound("buttons/button14.wav")
+
+				frame:Remove()
+			end
+		end
 	-- }}}
 
 	-- Post-mission screen {{{
@@ -2734,13 +2772,23 @@ jcms.offgame = jcms.offgame or NULL
 					jcms.net_SendVote(btn.mapname or game.GetMap())
 				end
 
-				for i, mapChoice in ipairs(jcms.aftergame.vote.choices) do
+				for mapChoice, wsid in pairs(jcms.aftergame.vote.choices) do
 					local mapname = tostring(mapChoice)
 					local mapButton = pnl.statsPnl.voting:Add("DButton")
 
 					mapButton.mapname = mapname
 					mapButton.exists = file.Exists("maps/" .. mapname .. ".bsp", "GAME")
 					mapButton.mat = Material("maps/thumb/" .. mapname .. ".png")
+
+					if wsid and not mapButton.exists then
+						steamworks.FileInfo( wsid, function( result )
+							steamworks.Download( result.previewid, true, function( path )
+								if type(path) == "string" then
+									mapButton.mat = AddonMaterial( path )
+								end
+							end)
+						end)
+					end
 
 					mapButton.colorMain = victory and jcms.color_bright_alt
 					mapButton.DoClick = voteFunc
@@ -2806,10 +2854,10 @@ jcms.offgame = jcms.offgame or NULL
 					end
 
 					local winningVoteCount, winningMap = -1, nil
-					for i, map in ipairs(jcms.aftergame.vote.choices) do
-						if (mapVotes[ map ] or 0) > winningVoteCount then
-							winningVoteCount = mapVotes[ map ] or 0
-							winningMap = map
+					for mapChoice, wsid in pairs(jcms.aftergame.vote.choices) do
+						if (mapVotes[ mapChoice ] or 0) > winningVoteCount then
+							winningVoteCount = mapVotes[ mapChoice ] or 0
+							winningMap = mapChoice
 						end
 					end
 
@@ -3138,6 +3186,8 @@ jcms.offgame = jcms.offgame or NULL
 			local function cbtnClick(self)
 				RunConsoleCommand("jcms_setclass", self.classname)
 				surface.PlaySound("weapons/slam/mine_mode.wav")
+				--jcms.cvar_favclass:SetString(self.classname)
+				-- Technically could set fav class here as well, but I doubt people who change class mid-game want to reset their fav class
 			end
 
 			local bWidth = 0
@@ -3167,12 +3217,14 @@ jcms.offgame = jcms.offgame or NULL
 			close:SetPos(frame:GetWide() - close:GetWide() - 8, 8)
 			function close:DoClick()
 				frame:Remove()
+				jcms.modal_classChange_open = false
 			end
 			close.Paint = jcms.paint_ButtonFilled
 
 			function frame:Think()
 				if jcms.locPly:GetObserverMode() ~= OBS_MODE_CHASE then
 					self:Remove()
+					jcms.modal_classChange_open = false
 				end
 			end
 		end

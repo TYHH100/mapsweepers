@@ -23,6 +23,8 @@
 
 	jcms.mat_tpeye = Material "jcms/jeyefx"
 	jcms.mat_evac = Material "jcms/landmarks/evac.png"
+	jcms.mat_boss = Material "jcms/factions/everyone.png"
+	jcms.mat_lock = Material "jcms/lock.png"
 
 -- // }}}
 
@@ -314,7 +316,7 @@
 		local time = CurTime() * 0.56
 		
 		local pad = 100
-		local off, sv = 12 + 0.13 * math.sin(time), gui.ScreenToVector(left and pad*1.2 or ScrW()-pad*1.2, top and pad or ScrH()-pad)
+		local off, sv = 12 + 0.13 * math.sin(time), gui.ScreenToVector(left and pad*1.2 or jcms.scrW-pad*1.2, top and pad or jcms.scrH-pad)
 
 		swayVec:SetUnpacked(math.sin(time) * 0.1, math.cos(time) * 0.1, math.sin(time*2) * 0.04)
 		sv:Mul(32)
@@ -341,19 +343,19 @@
 		local offX, offY = 0, 0
 
 		if dir == "top" then 
-			sv = gui.ScreenToVector(ScrW()/2, pad)
+			sv = gui.ScreenToVector(jcms.scrW/2, pad)
 			offY = 24 + 1.13 * math.sin(time)
 		elseif dir == "bottom" then 
-			sv = gui.ScreenToVector(ScrW()/2, ScrH() - pad)
+			sv = gui.ScreenToVector(jcms.scrW/2, jcms.scrH - pad)
 			offY = -24 - 1.13 * math.sin(time)
 		elseif dir == "left" then 
-			sv = gui.ScreenToVector(pad*1.25, ScrH()/2)
+			sv = gui.ScreenToVector(pad*1.25, jcms.scrH/2)
 			offX = 24 + 1.13 * math.sin(time)
 		elseif dir == "right" then 
-			sv = gui.ScreenToVector(ScrW() - pad*1.25, ScrH()/2)
+			sv = gui.ScreenToVector(jcms.scrW - pad*1.25, jcms.scrH/2)
 			offX = -24 - 1.13 * math.sin(time)
 		elseif dir == "center" then
-			sv = gui.ScreenToVector(ScrW()/2, ScrH()/2)
+			sv = gui.ScreenToVector(jcms.scrW/2, jcms.scrH/2)
 		else
 			error("invalid direction") 
 		end
@@ -429,6 +431,8 @@
 			return
 		end
 
+		local shouldDrawVignette = not jcms.cvar_hud_novignette:GetBool()
+
 		cam.Start2D()
 			surface.SetMaterial(jcms.mat_vignette)
 			if jcms.hud_shieldRestoredAnim then
@@ -440,19 +444,21 @@
 				surface.SetAlphaMultiplier(anim*0.2)
 				render.OverrideBlend(true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
 					surface.SetDrawColor(0, 200*anim2, 255)
-					surface.DrawTexturedRect(0, 0, ScrW(), ScrH())
+					surface.DrawTexturedRect(0, 0, jcms.scrW, jcms.scrH)
 				render.OverrideBlend(false)
 
-				surface.SetAlphaMultiplier(1-anim2)
-				surface.SetDrawColor(jcms.color_dark)
-				surface.DrawTexturedRect(0, 0, ScrW(), ScrH())
+				if shouldDrawVignette then
+					surface.SetAlphaMultiplier(1-anim2)
+					surface.SetDrawColor(jcms.color_dark)
+					surface.DrawTexturedRect(0, 0, jcms.scrW, jcms.scrH)
+				end
 
 				if jcms.hud_shieldRestoredAnim >= 1 then
 					jcms.hud_shieldRestoredAnim = nil
 				end
-			else
+			elseif shouldDrawVignette then
 				surface.SetDrawColor(jcms.color_dark)
-				surface.DrawTexturedRect(0, 0, ScrW(), ScrH())
+				surface.DrawTexturedRect(0, 0, jcms.scrW, jcms.scrH)
 			end
 		cam.End2D()
 	end
@@ -505,6 +511,7 @@
 		if me:Alive() then
 			surface.SetAlphaMultiplier(1)
 
+			local bubbleshields = me:GetNWInt("jcms_shield", 0)
 			local healthWidth = ( me:GetMaxHealth() * 4 )
 			local armorWidth = ( me:GetMaxArmor() * 4 )
 			local addX = 64
@@ -559,7 +566,7 @@
 			local offsetArmor = 6
 			local offsetIcon = 4
 
-			local data = jcms.class_GetData(me)
+			local data = jcms.class_GetLocPlyData()
 			local shieldDamageElapsed = CurTime() - jcms.hud_damageTimeLast
 			local shieldDamageDelay = data and data.shieldDelay or 0
 
@@ -613,6 +620,18 @@
 					surface.DrawRect(128 + addX + offsetArmor + fromX*armorWidth, -48 - 12 - offsetArmor, widthFrac*armorWidth, 16)
 				end
 			render.OverrideBlend( false )
+
+			if bubbleshields > 0 then
+				for i=1, bubbleshields do
+					draw.SimpleText("⛊", "jcms_hud_medium", 124 + addX + armorWidth - 34*(i-1), -48 - 12, jcms.color_dark_alt, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
+				end
+
+				render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+					for i=1, bubbleshields do
+						draw.SimpleText("⛊", "jcms_hud_medium", 124 + addX + offsetArmor + armorWidth - 34*(i-1), -48 - 12 - offsetArmor, jcms.color_bright_alt, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
+					end
+				render.OverrideBlend( false )
+			end
 		else
 			local offset = 6
 			draw.SimpleText("#jcms.userdead", "jcms_hud_big", 24, -38, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
@@ -841,7 +860,7 @@
 
 		local dead = ply:GetObserverMode() == OBS_MODE_CHASE or not ply:Alive()
 		local evacuated = ply:GetNWBool("jcms_evacuated", false)
-		local w, h = 1500, 128
+		local w, h = 1500, 134
 
 		if not jcms.classmats then
 			jcms.classmats = {}
@@ -863,7 +882,8 @@
 		local healthFrac = math.Clamp(ply:Health() / ply:GetMaxHealth(), 0, 1)
 		local armorWidth = ply:GetMaxArmor()*3
 		local armorFrac = math.Clamp(ply:Armor() / ply:GetMaxArmor(), 0, 1)
-		local pingString = ply:IsBot() and "BOT" or ply:Ping()
+		local pingString = ply:IsBot() and "BOT" or ply:Ping() .. "ms"
+		local cashString = jcms.util_CashFormat( ply:GetNWInt("jcms_cash", 0) )
 		local nick = ply:Nick()
 
 		if dead and not evacuated then
@@ -880,8 +900,11 @@
 			surface.SetMaterial(cmat)
 			surface.DrawTexturedRectRotated(x-w/2+h/2+4, y, 96, 96, 0)
 			draw.SimpleText(nick, "jcms_hud_medium", x - w/2 + h, y, color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-
-			draw.SimpleText(pingString, "jcms_hud_medium", x + w/2 - h, y, color, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+			
+			local cashLineX = x + w/2 - h + 26
+			draw.SimpleText(cashString, #cashString >= 8 and "jcms_hud_small" or "jcms_hud_medium", cashLineX, y-26, color, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+			jcms.draw_IconCash_optimised(cashLineX+38, y-26, 16, 16, color)
+			draw.SimpleText(pingString, "jcms_hud_medium", cashLineX+8, y+26, color, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
 			surface.SetAlphaMultiplier(alphamul)
 
 			if not dead then
@@ -1073,7 +1096,7 @@
 			cam.Start3D2D( tr.HitPos, ang, math.max( trLen / 3000, 0.03 ) )
 		end
 
-		local classData = jcms.class_GetData(me)
+		local classData = jcms.class_GetLocPlyData()
 
 		if classData and classData.disallowSprintAttacking and classData.boostedRunSpeed and me:IsSprinting() then
 			local frac = math.TimeFraction(classData.runSpeed, classData.boostedRunSpeed, me:GetRunSpeed())
@@ -1298,46 +1321,37 @@
 	end
 
 	function jcms.hud_GetLocatorColor(loc)
-		local clr = jcms.color_bright
-		local remaining = 0
-
-		if loc.tout then
-			remaining = math.max(math.ceil(loc.tout - loc.t), 0)
-		end
-
-		if (loc.type == jcms.LOCATOR_WARNING) or (loc.type == jcms.LOCATOR_TIMED and remaining < 10) then
-			clr = jcms.color_alert
+		--is a warning, or timed and remaining time < 10s
+		if (loc.type == jcms.LOCATOR_WARNING) or (loc.type == jcms.LOCATOR_TIMED and math.max(math.ceil(loc.tout - loc.t), 0) < 10) then
+			return jcms.color_alert
 		elseif loc.type == jcms.LOCATOR_SIGNAL then
-			clr = jcms.color_bright_alt
+			return jcms.color_bright_alt
 		end
 
-		return clr
+		return jcms.color_bright
 	end
 	
-	local jcms_dl_vOff = Vector(1.5,1.5,0)
+	local jcms_dl_mOff = Matrix()
+	jcms_dl_mOff:Translate(Vector(1.5, 1.5, 0))
+	local jcms_dl_m = Matrix()
+	local jcms_dl_transformVec = Vector(0,0,0) --Re-usable vector object since we need them for arbitrary transformations
+
+	local arrow = {
+		{ x = 0, y = 0 },
+		{ x = -3, y = -6 },
+		{ x = 8, y = 0 },
+		{ x = -3, y = 6 }
+	}
+
 	function jcms.draw_Locators() --todo: this is 1/3 of the (lua) perf cost of regular hud supposedly
-		local sw, sh = ScrW(), ScrH()
+		local sw, sh = jcms.scrW, jcms.scrH
 		local pad = 64
 		local eyePos = EyePos()
-
-		local arrow = {
-			{ x = 0, y = 0 },
-			{ x = -3, y = -6 },
-			{ x = 8, y = 0 },
-			{ x = -3, y = 6 }
-		}
-		
-		local matrix = Matrix()
-
-		local offMatrix = Matrix()
-		offMatrix:Translate(jcms_dl_vOff)
 		
 		for i, loc in ipairs(jcms.hud_locators) do
 			local pos = loc.at
-
-			if isvector(loc.at) then
-				pos = loc.at
-			elseif isentity(loc.at) then
+			
+			if isentity(loc.at) then
 				if IsValid(loc.at) then
 					pos = loc.at:WorldSpaceCenter()
 				else
@@ -1349,7 +1363,7 @@
 						loc.tout = 10
 					end
 				end
-			else
+			elseif not isvector(loc.at) then
 				loc.t = 999
 				loc.tout = 0
 				loc.a = 0
@@ -1368,20 +1382,24 @@
 
 			local spos = pos:ToScreen()
 			local x, y = spos.x, spos.y
-			--local sw, sh = ScrW(), ScrH()
 			
 			if x > pad and y > pad and x < sw-pad and y < sh-pad then
 				local dist = eyePos:Distance(pos)
 				local distStr = jcms.util_ToDistance(dist, true)
 				local distToScreenCenter = math.Distance(sw/2, sh/2, x, y)
 				local dsc = math.max(math.min(1, (150 - distToScreenCenter)/100), (3000/(dist*(loc.type == jcms.LOCATOR_GENERIC and 1 or 0.1)+3000)))
-				matrix:Identity()
-				matrix:Translate(Vector(x, y, 0))
+				
+				jcms_dl_m:Identity()
+				jcms_dl_transformVec:SetUnpacked(x, y, 0)
+				jcms_dl_m:Translate(jcms_dl_transformVec)
 				x, y = 0, 0
-				matrix:Scale(Vector(dsc, dsc, dsc))
+
+				jcms_dl_transformVec:SetUnpacked(dsc,dsc,dsc)
+				jcms_dl_m:Scale(jcms_dl_transformVec)
+
 				local size = Lerp(math.ease.OutBack(loc.a), 14, 24)
 
-				cam.PushModelMatrix(matrix, true)
+				cam.PushModelMatrix(jcms_dl_m, true)
 					local remaining = 0
 					if loc.tout then
 						remaining = math.max(math.ceil(loc.tout - loc.t), 0)
@@ -1398,18 +1416,8 @@
 
 					local landmarkDistanceAlphaMul = loc.icon and math.Clamp( (dist - 512)/128, 0, 1 ) or 1
 					surface.SetAlphaMultiplier( landmarkDistanceAlphaMul * (loc.directlyVisible and 1 or 0.35) * math.Clamp(distToCenter*3, 0.25, 1) )
-
-					surface.SetDrawColor(jcms.color_dark)
-					jcms.draw_Circle(x, y, size, size, 4, 4) --todo: Expensive to construct these, make an optimised/rendertarget version.
-
+					
 					local clr = jcms.hud_GetLocatorColor(loc)
-
-					cam.PushModelMatrix(offMatrix, true)
-						render.OverrideBlend(true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
-							surface.SetDrawColor(clr)
-							jcms.draw_Circle(x, y, size, size, 4, 4)
-						render.OverrideBlend(false)
-					cam.PopModelMatrix()
 
 					if loc.type == jcms.LOCATOR_TIMED then
 						draw.SimpleTextOutlined(distStr, "jcms_small", x, y + 12, clr, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP, 1, jcms.color_dark)
@@ -1433,13 +1441,15 @@
 				local cos, sin = math.cos(dir), math.sin(dir)
 				draw.NoTexture()
 				
-				matrix:Identity()
+				jcms_dl_m:Identity()
 				local xScrOff, yScrOff = sw*Lerp(frac, 0.35, 0.3), sh*Lerp(frac, 0.35, 0.3)
-				matrix:Translate(Vector(sw/2 + cos*xScrOff, sh/2 + sin*yScrOff, 0))
-				matrix:Rotate(Angle(0, math.deg(dir), 0))
+				jcms_dl_transformVec:SetUnpacked(sw/2 + cos*xScrOff, sh/2 + sin*yScrOff, 0)
+				jcms_dl_m:Translate(jcms_dl_transformVec)
+				jcms_dl_m:Rotate(Angle(0, math.deg(dir), 0))
 				if loc.new then
 					local bop = frac*2 + 1
-					matrix:Scale(Vector(bop,bop,1))
+					jcms_dl_transformVec:SetUnpacked(bop, bop, 1)
+					jcms_dl_m:Scale(jcms_dl_transformVec)
 				end
 				
 				local clr = loc.new and jcms.color_bright_alt or jcms.color_bright
@@ -1455,17 +1465,17 @@
 				local yAlign = sin < -0.33 and TEXT_ALIGN_TOP or sin < 0.33 and TEXT_ALIGN_CENTER or TEXT_ALIGN_BOTTOM
 
 				surface.SetDrawColor(clr_dark)
-				cam.PushModelMatrix(matrix, true)
+				cam.PushModelMatrix(jcms_dl_m, true)
 					surface.DrawPoly(arrow)
 				cam.PopModelMatrix()
 				local xScr, yScr = sw/2+cos*(xScrOff-12), sh/2+sin*(yScrOff-12)
 				draw.SimpleText(loc.name, "jcms_small", xScr, yScr, clr_dark, xAlign, yAlign)
 
-				cam.PushModelMatrix(offMatrix, true)
+				cam.PushModelMatrix(jcms_dl_mOff, true)
 				render.OverrideBlend(true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
 
 					surface.SetDrawColor(clr)
-					cam.PushModelMatrix(matrix, true)
+					cam.PushModelMatrix(jcms_dl_m, true)
 						surface.DrawPoly(arrow)
 					cam.PopModelMatrix()
 
@@ -1473,7 +1483,6 @@
 
 				render.OverrideBlend(false)
 				cam.PopModelMatrix()
-
 			end
 		end
 
@@ -1784,7 +1793,7 @@
 			jcms.hud_BeginningSequenceDraw()
 		else
 			if obs == OBS_MODE_NONE then
-				local classData = jcms.class_GetData(ply)
+				local classData = jcms.class_GetLocPlyData()
 				
 				if classData and classData.HUDOverride then
 					classData.HUDOverride(ply, classData)
@@ -1798,7 +1807,7 @@
 					jcms.offgame_ShowPreMission()
 				end
 			elseif obs == OBS_MODE_CHASE then
-				local classData = jcms.class_GetData(ply)
+				local classData = jcms.class_GetLocPlyData()
 
 				if classData and classData.faction then
 					cam.Start2D()
@@ -1812,7 +1821,7 @@
 					local f = math.ease.InOutCubic(math.Clamp((jcms.vm_evacd-3.5)/1.5, 0, 1))
 					cam.Start2D()
 						surface.SetDrawColor(0, 0, 0, 255*f)
-						surface.DrawRect(-2,-2,ScrW()+4,ScrH()+4)
+						surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 					cam.End2D()
 				end
 			end
@@ -1993,6 +2002,39 @@
 -- // }}}
 
 -- // InfoTarget {{{
+
+	jcms.hud_infoTargetFuncs_boss = function(ent, blend, bossType)
+		local colDark, colBright = jcms.color_dark, jcms.color_bright
+		surface.SetAlphaMultiplier(blend)
+		if bossType then
+			local bossName = language.GetPhrase("jcms.bestiary_" .. bossType)
+			local tw = draw.SimpleText(bossName, "jcms_hud_small", 12, 64, colDark, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			surface.SetMaterial(jcms.mat_boss)
+			surface.SetDrawColor(colDark)
+			surface.DrawTexturedRectRotated(-tw/2-12, 64, 32*blend, 32*blend, 0)
+
+			local hpw = math.max(96, tw*2.5)*blend
+			local hph = math.max(8, hpw/32)
+			local hpFrac = ent:GetNWFloat("HealthFraction", -1)
+			if hpFrac == -1 then
+				hpFrac = ent:Health() / ent:GetMaxHealth()
+			end
+			hpFrac = math.Clamp(hpFrac, 0, 1)
+
+			surface.DrawRect(-hpw/2, 100, hpw, hph)
+
+			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+				draw.SimpleText(bossName, "jcms_hud_small", 12, 60, colBright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				surface.SetDrawColor(colBright)
+				surface.DrawTexturedRectRotated(-tw/2-12, 60, 32*blend, 32*blend, 0)
+				
+				surface.DrawRect(-hpw/2, 96, hpw*hpFrac, hph)
+				if hpFrac < 1 then
+					jcms.hud_DrawStripedRect(-hpw/2+hpw*hpFrac, 96+hph/4, hpw*(1-hpFrac), hph/2, 64, CurTime()*64)
+				end
+			render.OverrideBlend( false )
+		end
+	end
 
 	jcms.hud_infoTargetFuncs = {
 		["player"] = function(ply, blend)
@@ -2262,9 +2304,8 @@
 			render.OverrideBlend(false)
 
 			surface.SetAlphaMultiplier(1)
-		end,
+		end
 	}
-	
 	jcms.hud_infoTargetFuncs.jcms_turret_smrls = jcms.hud_infoTargetFuncs.jcms_turret
 
 	function jcms.render_TargetInfo(ent)
@@ -2273,19 +2314,41 @@
 
 		local pos = ent:WorldSpaceCenter()
 		local angle = ent:EyeAngles()
-		angle.p = 0
 
-		angle:RotateAroundAxis(angle:Forward(), 90)
-		angle.y = ( math.Round(EyeAngles().y/45)*45 - 90 )
-		cam.Start3D2D(pos, angle, 1 / 16)
-			jcms.hud_infoTargetFuncs[ ent:GetClass() ](ent, blend)
+		local bossType = ent:GetNWString("jcms_boss", "")
+		if bossType == "" then bossType = nil end
+		
+		local eyeAngles = EyeAngles()
+		if bossType then
+			angle.p = 0
+			angle:RotateAroundAxis(angle:Forward(), 90)
+			angle.y = eyeAngles.y - 90
+	
+			local sc = EyePos():Distance(origin) / 1500
+			if sc < 0.5 then
+				sc = (sc*2 + 0.5)/3
+			end
+			cam.Start3D2D(pos, angle, sc)
+				jcms.hud_infoTargetFuncs_boss(ent, blend, bossType)
+			cam.End3D2D()
+		else
+			angle.p = 0
+			angle:RotateAroundAxis(angle:Forward(), 90)
+			angle.y = ( math.Round(eyeAngles.y/45)*45 - 90 )
+	
+			cam.Start3D2D(pos, angle, 1 / 16)
+				jcms.hud_infoTargetFuncs[ ent:GetClass() ](ent, blend)
+			cam.End3D2D()
+		end
+
 		render.OverrideBlend( false )
-		cam.End3D2D()
 		surface.SetAlphaMultiplier(1)
 	end
 
-	function jcms.hud_IsInfoTarget(ent)
-		return not not jcms.hud_infoTargetFuncs[ ent:GetClass() ]
+	function jcms.hud_GetInfoTargetData(ent)
+		local f = jcms.hud_infoTargetFuncs[ ent:GetClass() ]
+		local isBoss = ent:GetNWString("jcms_boss", "") ~= ""
+		return not not (f or isBoss), isBoss
 	end
 
 -- // }}}
@@ -2300,12 +2363,16 @@
 		render.ClearDepth()
 		cam.IgnoreZ(true)
 
-		--local trace = jcms.util_ShortEyeTrace(locPly, 300)
 		local trace = locPly:GetEyeTrace()
 
-		if IsValid(trace.Entity) and trace.StartPos:DistToSqr(trace.HitPos) < 300^2 and jcms.hud_IsInfoTarget(trace.Entity) then
-			jcms.hud_target = trace.Entity
-			jcms.hud_targetLast = trace.Entity
+		if IsValid(trace.Entity) then
+			local isInfoTarget, longRange = jcms.hud_GetInfoTargetData(trace.Entity)
+			if isInfoTarget and trace.StartPos:DistToSqr(trace.HitPos) < (longRange and 25000000 or 90000) then -- 300 HU for short-range, 5000 HU for long range
+				jcms.hud_target = trace.Entity
+				jcms.hud_targetLast = trace.Entity
+			else
+				jcms.hud_target = nil
+			end
 		else
 			jcms.hud_target = nil
 		end
@@ -2314,7 +2381,7 @@
 			local f = math.ease.InOutCubic(math.Clamp((jcms.hud_dead-0.6)/3, 0, 1))
 			cam.Start2D()
 				surface.SetDrawColor(0, 0, 0, 255*f)
-				surface.DrawRect(-2,-2,ScrW()+4,ScrH()+4)
+				surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 			cam.End2D()
 		end
 		
@@ -2422,7 +2489,7 @@
 				surface.SetMaterial(jcms.hud_myclassMat)
 				surface.DrawTexturedRectRotated(-24 - nickwidth/2, -256+64-off, 96, 96, 0)
 				
-				local sw = ScrW()
+				local sw = jcms.scrW
 				local healthWidth = math.min( sw, tg:GetMaxHealth() * 4 )
 				local armorWidth = math.min( sw, tg:GetMaxArmor() * 4 )
 
@@ -2451,12 +2518,12 @@
 					local str = language.GetPhrase(jcms.vm_evacd > 0.5 and "#jcms.switchsides_evac" or "#jcms.switchsides")
 
 					surface.SetDrawColor(jcms.color_dark)
-					jcms.draw_Circle(0, -200, 38, 38, 5, 12)
-					draw.SimpleText(binding, "jcms_hud_medium", 0, -200, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					jcms.draw_Circle(0, -200, 38*1.5, 38*1.5, 5*1.5, 12*1.5)
+					draw.SimpleText(binding, "jcms_hud_big", 0, -200, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 					
 					surface.SetDrawColor(jcms.color_bright)
-					jcms.draw_Circle(0, -200-off, 38, 38, 5, 12)
-					draw.SimpleText(binding, "jcms_hud_medium", x, -200-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					jcms.draw_Circle(0, -200-off, 38*1.5, 38*1.5, 5*1.5, 12*1.5)
+					draw.SimpleText(binding, "jcms_hud_big", x, -200-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
 					
 					local angleoff = math.pi/3 - anim*0.3
 					surface.SetDrawColor(jcms.color_dark_alt)
@@ -2465,12 +2532,12 @@
 					surface.SetDrawColor(jcms.color_bright_alt)
 					jcms.draw_Circle(0, -200-off, 48, 48, 8, 16, -angleoff, math.pi*2*anim-angleoff)
 
-					draw.SimpleText(str, "jcms_hud_small", 64, -200, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-					draw.SimpleText(str, "jcms_hud_small", 64, -200-off, jcms.color_bright, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+					draw.SimpleText(str, "jcms_hud_medium", 64*1.5, -200, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+					draw.SimpleText(str, "jcms_hud_medium", 64*1.5, -200-off, jcms.color_bright, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 
 					if anim <= 0 then
-						draw.SimpleText("#jcms.switchsides_tip", "jcms_hud_small", 0, -200+48, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-						draw.SimpleText("#jcms.switchsides_tip", "jcms_hud_small", 0, -200+48		-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+						draw.SimpleText("#jcms.switchsides_tip", "jcms_hud_medium", 0, -200+48*1.5, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+						draw.SimpleText("#jcms.switchsides_tip", "jcms_hud_medium", 0, -200+48*1.5-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 					end
 				end
 				cam.End3D2D()
@@ -2497,8 +2564,9 @@
 					draw.SimpleText(binding, font, 0, -200-off, jcms.color_bright, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
 					draw.SimpleText(str, "jcms_hud_small", -24, -172-off, jcms.color_bright, TEXT_ALIGN_RIGHT, TEXT_ALIGN_TOP)
 					
-					if jcms.locPly:KeyPressed(IN_JUMP) then
+					if jcms.locPly:KeyPressed(IN_JUMP) or jcms.locPly:KeyDown(IN_JUMP) and not jcms.modal_classChange_open then
 						jcms.offgame_ModalChangeClass()
+						jcms.modal_classChange_open = true
 					end
 				end
 				cam.End3D2D()
@@ -2522,7 +2590,7 @@
 		local f2 = math.ease.InOutCubic(jcms.hud_dead)
 		cam.Start2D()
 			surface.SetDrawColor(0, 0, 0, 255*f2)
-			surface.DrawRect(-2,-2,ScrW()+4,ScrH()+4)
+			surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 		cam.End2D()
 	end
 
@@ -2533,11 +2601,11 @@
 			cam.Start2D()
 				render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
 					surface.SetDrawColor(255, 255*f, 255*f, 255*f)
-					surface.DrawRect(-2,-2,ScrW()+4,ScrH()+4)
+					surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 				render.OverrideBlend( false )
 
 				surface.SetDrawColor(0, 0, 0, 255*f2)
-				surface.DrawRect(-2,-2,ScrW()+4,ScrH()+4)
+				surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 			cam.End2D()
 		end
 	end
@@ -2593,12 +2661,12 @@
 						local f = 1-math.Clamp(t-0.3, 0, 1)
 						surface.SetDrawColor(255*f, 255*f*f*f, 255*f*f*f, 255*f*f)
 					end
-					surface.DrawRect(-4, -4, ScrW() + 8, ScrH() + 8)
+					surface.DrawRect(-4, -4, jcms.scrW + 8, jcms.scrH + 8)
 					
 					local clr = math.Remap(t, 0.3, 3.5, 255, 0)
 					surface.SetMaterial(jcms.mat_tpeye)
 					surface.SetDrawColor(clr, 0, clr, clr)
-					surface.DrawTexturedRect(0, 0, ScrW(), ScrH())
+					surface.DrawTexturedRect(0, 0, jcms.scrW, jcms.scrH)
 				cam.End2D()
 				
 				render.ClearDepth()
@@ -2659,7 +2727,7 @@
 					else
 						surface.SetDrawColor(0, 0, 0, 255 * math.max(0, 1-(t-4.3)/5 ))
 					end
-					surface.DrawRect(-4, -4, ScrW() + 8, ScrH() + 8)
+					surface.DrawRect(-4, -4, jcms.scrW + 8, jcms.scrH + 8)
 				cam.End2D()
 				
 				render.ClearDepth()
@@ -2735,7 +2803,10 @@
 -- // Ending sequence {{{
 
 	function jcms.hud_EndingSequence(victory)
-		
+		if CustomChat then --Integration, stops drawing over the lobby.
+			CustomChat:Disable()
+		end
+
 		jcms.offgame_ShowPostMission(victory)
 		table.Empty(jcms.hud_locators)
 		
@@ -2859,7 +2930,9 @@
 
 	function jcms.hud_DispatchDamage(dmgType, negated)
 		local ct = CurTime()
-		jcms.hud_damageTimeLast = ct
+		if not negated then
+			jcms.hud_damageTimeLast = ct
+		end
 
 		for i, indicator in ipairs(jcms.hud_damageIndicators) do
 			if bit.band(dmgType, indicator.dmgType) > 0 then

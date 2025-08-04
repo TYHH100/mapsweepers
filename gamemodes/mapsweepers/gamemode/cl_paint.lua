@@ -265,7 +265,7 @@
 		return true
 	end
 	
-	function jcms.paint_ModalChangeMission(p, w, h)
+	local function jcms_Modal(p, w, h)
 		local t = (CurTime()%1) * 16
 		surface.SetDrawColor(jcms.color_dark)
 		surface.DrawRect(0, 4, w, h-8)
@@ -274,21 +274,29 @@
 		surface.DrawRect(w-1, 0, 1, h)
 		jcms.hud_DrawStripedRect(0, 0, w, 4, 32, t)
 		jcms.hud_DrawStripedRect(0, h-6, w, 4, 32, t)
+	end
+
+	function jcms.paint_ModalJoinNPC(p, w, h)
+		jcms_Modal(p, w, h)
+		draw.SimpleText("#jcms.joinas_npc", "jcms_big", 16, 8, jcms.color_bright)
+		draw.SimpleText("#jcms.modal_joinasnpc_description1", "jcms_medium", 24, 48, jcms.color_bright)
+		draw.SimpleText("#jcms.modal_joinasnpc_description2", "jcms_medium", 24, 70, jcms.color_bright)
+		
+		local w, h = p:GetSize()
+		draw.SimpleText("#jcms.modal_joinasnpc_warning", "jcms_small_bolder", w/2, 116, jcms.color_bright, TEXT_ALIGN_CENTER)
+
+		return true
+	end
+
+	function jcms.paint_ModalChangeMission(p, w, h)
+		jcms_Modal(p, w, h)
 		draw.SimpleText("#jcms.changemission_sp", "jcms_big", 16, 8, jcms.color_bright)
 
 		return true
 	end
 
 	function jcms.paint_ModalChangeClass(p, w, h)
-		local t = (CurTime()%1) * 16
-		surface.SetDrawColor(jcms.color_dark)
-		surface.DrawRect(0, 4, w, h-8)
-		surface.SetDrawColor(jcms.color_bright)
-		surface.DrawRect(0, 0, 1, h)
-		surface.DrawRect(w-1, 0, 1, h)
-		jcms.hud_DrawStripedRect(0, 0, w, 4, 32, t)
-		jcms.hud_DrawStripedRect(0, h-6, w, 4, 32, t)
-
+		jcms_Modal(p, w, h)
 		draw.SimpleText("#jcms.changeclass", "jcms_big", 16, 8, jcms.color_bright)
 
 		return true
@@ -364,8 +372,6 @@
 			col.g = (col.g + 255)/2
 			col.b = (col.b + 255)/2
 
-
-			local gunMats = p.gunMats or jcms.gunMats
 			local index = 0
 
 			local mx, my = p:LocalCursorPos()
@@ -376,13 +382,6 @@
 			for _, weapon in ipairs(weps) do
 				local class = weapon:GetClass()
 				if class == "weapon_stunstick" then continue end
-
-				if not gunMats[class] then
-					gunMats[class] = Material(p.gunStats.icon or "vgui/entities/"..class..".png")
-					if gunMats[class]:IsError() then
-						gunMats[class]  = Material("entities/"..class..".png")
-					end
-				end
 				
 				if selectionIndex ~= index then
 					local size = 32
@@ -391,7 +390,7 @@
 
 					surface.SetDrawColor(jcms.color_bright)
 					surface.DrawRect(baseX + 150 + index*34, size + 8, size - 4, 1)
-					surface.SetMaterial(gunMats[class])
+					surface.SetMaterial(jcms.gunstats_GetMat(class))
 					surface.DrawTexturedRectRotated(baseX + 150 + index*34 + 4 + 16, size/2 + 4, size, size, 0)
 					surface.SetDrawColor(col)
 					surface.DrawTexturedRectRotated(baseX + 150 + index*34 + 16, size/2, size, size, 0)
@@ -411,7 +410,7 @@
 				local class = selectionWeapon:GetClass()
 
 				local size = 48
-				surface.SetMaterial(gunMats[class])
+				surface.SetMaterial(jcms.gunstats_GetMat(class))
 				surface.SetDrawColor(jcms.color_bright)
 				surface.DrawTexturedRectRotated(baseX + 150 + selectionIndex*34 + 4 + 16, size/2 + 4, size, size, 0)
 				surface.SetDrawColor(color_white)
@@ -543,19 +542,11 @@
 			p.createdAt = CurTime()
 		end
 
-		local gunMats = p.gunMats or jcms.gunMats
-
-		if not gunMats[p.gunClass] then
-			gunMats[p.gunClass] = Material(p.gunStats.icon or "vgui/entities/"..p.gunClass..".png")
-			if gunMats[p.gunClass]:IsError() then
-				gunMats[p.gunClass]  = Material("entities/"..p.gunClass..".png")
-			end
-		end
-
-		if gunMats[p.gunClass] and gunMats[p.gunClass]:IsError() then
+		local gunMat = jcms.gunstats_GetMat(p.gunClass)
+		if gunMat and gunMat:IsError() then
 			p.matBad = true
 		else
-			p.mat = gunMats[p.gunClass]
+			p.mat = gunMat
 		end
 		
 		local clr = (p.owned and p.owned>0) and jcms.color_bright_alt or jcms.color_bright
@@ -935,7 +926,6 @@
 			-- Game summary {{{
 				local missionType = jcms.util_GetMissionType()
 				local missionData = jcms.missions[ missionType ]
-				local ongoing = false -- TODO
 				local missionNameX = w - 32 - 600
 				
 				if (missionType ~= "") then
@@ -946,7 +936,7 @@
 					local font = smallscreen and "jcms_hud_small" or "jcms_hud_medium"
 					surface.SetFont(font)
 					local tw, th = surface.GetTextSize(name)
-					tw = math.max(tw, 128)
+					tw = math.max(tw, 210)
 					local xpad = 48
 					local ypad = 8
 
@@ -1090,17 +1080,40 @@
 			-- }}}
 
 			-- Mission Timer {{{
-				local isTimerOn = jcms.util_IsGameTimerGoing()
-				local timeRemains = jcms.util_GetTimeUntilStart()
+				local ongoing = jcms.util_IsGameOngoing()
+				local missionTime = ongoing and jcms.util_GetMissionTime() or 0
+				local isTimerOn = ongoing or jcms.util_IsGameTimerGoing()
+				local timeRemains = ongoing and missionTime or jcms.util_GetTimeUntilStart()
+				local loadProgress = jcms.util_GetMapGenProgress()
+				local isLoading = loadProgress >= 0
+				loadProgress = math.Clamp(loadProgress, 0, 1)
 				
-				if isTimerOn then
+				if isLoading then
+					local tw, th = w - missionNameX - 36, 32
+					local tx, ty = missionNameX, 48
+
+					surface.SetAlphaMultiplier(1)
+					surface.SetDrawColor(jcms.color_pulsing)
+					surface.DrawOutlinedRect(tx, ty-2, tw, th+4)
+					
+					surface.SetDrawColor(jcms.color_bright)
+					surface.DrawRect(tx+4, ty+2, (tw-8)*loadProgress, th-4)
+					surface.SetDrawColor(jcms.color_pulsing)
+					jcms.hud_DrawStripedRect(tx+4+(tw-8)*loadProgress, ty+2+4, (tw-8)*(1-loadProgress), th-4-8, 32, CurTime()*-32)
+
+					draw.SimpleTextOutlined( ("%s - %.1f%%"):format(language.GetPhrase("#jcms.generatingmap"), loadProgress*100), "jcms_medium", tx+tw/2, ty+th/2, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER, 2, jcms.color_dark)
+					
+				elseif isTimerOn then
 					if not p.didTimerBeep then
 						p.didTimerBeep = true
 						surface.PlaySound("buttons/blip1.wav")
 					end
 
 					local timerCol = timeRemains <= 10 and jcms.color_alert or jcms.color_bright_alt
-					
+					if ongoing then
+						timerCol = jcms.color_bright
+					end
+
 					surface.SetAlphaMultiplier(0.3)
 					surface.SetDrawColor(timerCol)
 					local tw, th = w - missionNameX - 36, 32
@@ -1111,9 +1124,16 @@
 					surface.SetDrawColor(timerCol)
 					surface.DrawRect(tx, ty, 1, th)
 					surface.DrawRect(tx + tw - 1, ty, 1, th)
-					draw.SimpleText(timeRemains < 5 and "#jcms.missionbegins" or "#jcms.countdowntomission", "jcms_medium", tx + th/2, ty + th/2, timerCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
-					draw.SimpleText(string.FormattedTime(timeRemains, "%02i:%02i"), "jcms_hud_small", tx + tw - th/2, ty+th/2, timerCol, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
 
+					if ongoing then
+						local time = string.FormattedTime( missionTime )
+						local formatted = string.format("%02i:%02i:%02i", time.h, time.m, time.s)
+						draw.SimpleText("#jcms.missioninprogress", "jcms_medium", tx + th/2, ty + th/2, timerCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+						draw.SimpleText(formatted, "jcms_hud_small", tx + tw - th/2, ty+th/2, timerCol, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+					else
+						draw.SimpleText(timeRemains < 5 and "#jcms.missionbegins" or "#jcms.countdowntomission", "jcms_medium", tx + th/2, ty + th/2, timerCol, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
+						draw.SimpleText(string.FormattedTime(timeRemains, "%02i:%02i"), "jcms_hud_small", tx + tw - th/2, ty+th/2, timerCol, TEXT_ALIGN_RIGHT, TEXT_ALIGN_CENTER)
+					end
 				else
 					if p.didTimerBeep then
 						p.didTimerBeep = false
@@ -1264,7 +1284,6 @@
 					wbtn.DoClick = wbtnClick
 					wbtn.gunSale = jcms.util_GetLobbyWeaponCostMultiplier()
 					wbtn.ammoSale = 1
-					wbtn.gunMats = p.gunMats
 					wbtn.gunClass = class 
 					wbtn.gunStats = jcms.gunstats_GetExpensive(class)
 					wbtn.cost = jcms.weapon_prices[class]
@@ -1296,21 +1315,17 @@
 				local twbase = draw.SimpleText(stats.base, "jcms_small", 28, y, jcms.color_bright)
 				y = y + (mini and 8 or 20)
 
-				if hoveredElement.gunMats then
-					local mat = hoveredElement.gunMats[ class ]
+				local mat = jcms.gunstats_GetMat(class)
 
-					if mat and not mat:IsError() then
-						surface.SetMaterial(mat)
-						surface.SetDrawColor(255, 255, 255)
-						if mini then
-							surface.DrawTexturedRect(256 - 64 - 8, y - 24, 64, 64, 0)
-							y = y + 16
-						else
-							surface.DrawTexturedRect(32, y, 96, 96, 0)
-							y = y + 112
-						end
-					else
+				if mat and not mat:IsError() then
+					surface.SetMaterial(mat)
+					surface.SetDrawColor(255, 255, 255)
+					if mini then
+						surface.DrawTexturedRect(256 - 64 - 8, y - 24, 64, 64, 0)
 						y = y + 16
+					else
+						surface.DrawTexturedRect(32, y, 96, 96, 0)
+						y = y + 112
 					end
 				else
 					y = y + 16
@@ -1444,10 +1459,11 @@
 
 		function jcms.offgame_paint_CreditsPanelDevs(p, w, h)
 			surface.SetDrawColor(jcms.color_pulsing)
-			drawHollowPolyButton(0, -1, w, h+2)
+			drawHollowPolyButton(0, -1, w, 212)
+			drawHollowPolyButton(0, 212-1+4, w, h-212-4+2)
 
 			local _, th = draw.SimpleText("MAP SWEEPERS", "jcms_big", w/2, 0, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-			draw.SimpleText("by Octantis Addons", "jcms_medium", w/2, th - 4, jcms.color_pulsing, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+			draw.SimpleText("by Octantis Addons", "jcms_medium", w/2, th - 4, jcms.color_pulsing, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)			
 			local devs = {
 				{ "MerekiDor", "#jcms.credits_lead", "#jcms.credits_coregameplay", "#jcms.credits_ui", "#jcms.credits_vfx", "#jcms.credits_models" },
 				{ "JonahSoldier", "#jcms.credits_gamedesign", "#jcms.credits_missiondesign", "#jcms.credits_classdesign", "#jcms.credits_ai", "#jcms.credits_va" },
@@ -1455,7 +1471,7 @@
 			
 			for i, dev in ipairs(devs) do
 				local x = w/4 + (w/2) * (i-1)
-				local y = 72
+				local y = 66
 				draw.SimpleText(dev[1], "jcms_medium", x, y, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 				y = y + 28
 				for j=2, #dev do
@@ -1463,6 +1479,13 @@
 					y = y + 18
 				end
 			end
+
+			draw.SimpleText("★ " .. language.GetPhrase("jcms.credits_github"), "jcms_medium", 24, 218, jcms.color_bright, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
+			local contributors = {
+				"Redox", "thecraftianman"
+			}
+
+			draw.SimpleText(table.concat(contributors, ", "), "jcms_small_bolder", 28, 248, jcms.color_pulsing)
 		end
 
 		function jcms.offgame_paint_CreditsPanelPeopleList(p, w, h)
@@ -1701,19 +1724,29 @@
 				jcms.hud_DrawNoiseRect(x + 4, y + 4, w - 8, h - 8)
 				surface.SetAlphaMultiplier(1)
 
-				draw.SimpleText(entry.name, "jcms_medium", 24, 24, jcms.color_bright)
+				draw.SimpleText(p.entryName, "jcms_medium", 24, 24, jcms.color_bright)
 
 				if mat then
 					surface.SetMaterial(mat)
 					surface.SetDrawColor(jcms.color_bright)
-					surface.DrawTexturedRect(x + w + 24, y, 96, 96)
+					surface.DrawTexturedRect(x + w + 8, y, 96, 96)
 				end
 
-				draw.SimpleText("#jcms.bestiaryhealth", "jcms_small_bolder", x + w + 72, 128, jcms.color_bright, TEXT_ALIGN_CENTER)
-				draw.SimpleText(jcms.util_CashFormat(entry.health), "jcms_hud_small", x + w + 72, 128 + 12, jcms.color_bright, TEXT_ALIGN_CENTER)
+				local str1 = jcms.util_CashFormat(entry.health)
+				local font1 = "jcms_hud_small"
+				surface.SetFont(font1)
+				local tw1 = surface.GetTextSize(str1)
+				if tw1 > 72 then font1 = "jcms_medium" end
+				draw.SimpleText("#jcms.bestiaryhealth", "jcms_small_bolder", x + w + 60, 128, jcms.color_bright, TEXT_ALIGN_CENTER)
+				draw.SimpleText(str1, font1, x + w + 60, 128 + 12, jcms.color_bright, TEXT_ALIGN_CENTER)
 
-				draw.SimpleText("#jcms.bestiarybounty", "jcms_small_bolder", x + w + 72, 128 + 72, jcms.color_bright, TEXT_ALIGN_CENTER)
-				draw.SimpleText(jcms.util_CashFormat(entry.bounty) .. " J", "jcms_hud_small", x + w + 72, 128 + 72 + 12, jcms.color_bright, TEXT_ALIGN_CENTER)
+				local str2 = jcms.util_CashFormat(entry.bounty) .. " J"
+				local font2 = "jcms_hud_small"
+				surface.SetFont(font2)
+				local tw2 = surface.GetTextSize(str2)
+				if tw2 > 72 then font2 = "jcms_medium" end
+				draw.SimpleText("#jcms.bestiarybounty", "jcms_small_bolder", x + w + 60, 128 + 72, jcms.color_bright, TEXT_ALIGN_CENTER)
+				draw.SimpleText(str2, font2, x + w + 60, 128 + 72 + 12, jcms.color_bright, TEXT_ALIGN_CENTER)
 			end
 		end
 

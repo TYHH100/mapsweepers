@@ -162,6 +162,7 @@
 
 		npc:SetVelocity(Vector(0,0,vertVel))
 		timer.Simple(0.1, function() 
+			if not IsValid(npc) then return end
 			npc:SetVelocity(dir * groundVel)
 		end)
 	end
@@ -251,6 +252,7 @@
 		npc.jcms_npc_HeliTurretPos = vector_origin
 
 		npc:SetCollisionGroup(COLLISION_GROUP_INTERACTIVE_DEBRIS) --Don't collide with other air units.
+		--TODO: See if the phys_bone_follower is what's causing us to still collide with each-other.
 	end
 
 	function jcms.npc_Helicopter_FireBullets(npc, bulletData)
@@ -283,6 +285,12 @@
 			npc:EmitSound("jcms_rebelheli_die", 140, 100, 1, CHAN_VOICE, 0, 38) --Death line
 			hook.Call("OnNPCKilled", GAMEMODE, npc, dmg:GetAttacker(), dmg:GetInflictor())
 		end
+		
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+			end
+		end)
 	end
 
 	function jcms.npc_Helicopter_Think(npc)
@@ -1167,7 +1175,7 @@ jcms.npc_types.rebel_vortigaunt = {
 							local ed = EffectData()
 							ed:SetEntity(ent)
 							ed:SetFlags(2)
-							ed:SetColor(jcms.util_colorIntegerJCorp)
+							ed:SetColor(jcms.util_ColorIntegerFast(0, 255, 0))
 							util.Effect("jcms_shieldeffect", ed)
 							ent:EmitSound("items/suitchargeok1.wav", 50, 130, 0.5)
 						elseif ent:IsNPC() and not(ent:GetNWInt("jcms_sweeperShield_max") == -1) and ent:GetMaxHealth() < 100 then
@@ -1197,8 +1205,10 @@ jcms.npc_types.rebel_helicopter = {
 	portalScale = 5,
 	
 	postSpawn = function(npc)
-		--NOTE: Sometimes randomly instantly dies.
+		--NOTE: Sometimes randomly instantly dies. 
+			-- promoted. -MerekiDor
 		jcms.npc_Helicopter_Setup(npc, 40)
+		npc:SetNWString("jcms_boss", "rebel_helicopter")
 
 		npc:SetMaxHealth(npc:GetMaxHealth() * 0.4)
 		npc:SetHealth(npc:GetMaxHealth())
@@ -1236,6 +1246,7 @@ jcms.npc_types.rebel_megacopter = {
 	
 	postSpawn = function(npc)
 		jcms.npc_Helicopter_Setup(npc, 40)
+		npc:SetNWString("jcms_boss", "rebel_megacopter")
 
 		npc.jcms_heli_dropTypes[1] = "gatling"
 
