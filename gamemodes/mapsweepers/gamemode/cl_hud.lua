@@ -19,12 +19,18 @@
 	Contact E-Mail: merekidorian@gmail.com
 --]]
 
+-- // Metatables for optimisation {{{
+	local emt = FindMetaTable("Entity")
+	local pmt = FindMetaTable("Player")
+--// }}}
+
 -- // Mats {{{
 
 	jcms.mat_tpeye = Material "jcms/jeyefx"
 	jcms.mat_evac = Material "jcms/landmarks/evac.png"
 	jcms.mat_boss = Material "jcms/factions/everyone.png"
 	jcms.mat_lock = Material "jcms/lock.png"
+	jcms.mat_maze = Material "jcms/maze.png"
 
 -- // }}}
 
@@ -776,16 +782,25 @@
 		end
 	end
 
+	local jcms_dc_dirCol = Color(0,0,0)
+	local jcms_dc_letters = {"E", "N", "W", "S"}
+	local jcms_dc_alpha = {0,0,0,0}
+	local jcms_dc_ang = {0,0,0,0}
 	function jcms.draw_Compass()
 		local eyeAngles = EyeAngles()
 		local eyePos = EyePos()
 		local yaw = math.rad( eyeAngles.yaw )
 		local span = 800
 
-		local x_east, alpha_east = math.sin(yaw)/2+0.5, math.cos(yaw)
-		local x_nrth, alpha_nrth = math.sin(yaw - math.pi/2)/2+0.5, math.cos(yaw - math.pi/2)
-		local x_west, alpha_west = math.sin(yaw + math.pi)/2+0.5, math.cos(yaw + math.pi)
-		local x_suth, alpha_suth = math.sin(yaw + math.pi/2)/2+0.5, math.cos(yaw + math.pi/2)
+		jcms_dc_alpha[1] = math.cos(yaw)					--East
+		jcms_dc_alpha[2] = math.cos(yaw - math.pi/2)		--North
+		jcms_dc_alpha[3] = math.cos(yaw + math.pi)			--West
+		jcms_dc_alpha[4] = math.cos(yaw + math.pi/2)		--South
+
+		jcms_dc_ang[1] = math.sin(yaw)/2+0.5				--East
+		jcms_dc_ang[2] = math.sin(yaw - math.pi/2)/2+0.5	--North
+		jcms_dc_ang[3] = math.sin(yaw + math.pi)/2+0.5		--West
+		jcms_dc_ang[4] = math.sin(yaw + math.pi/2)/2+0.5	--South
 
 		render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
 			surface.SetDrawColor(jcms.color_bright)
@@ -800,7 +815,7 @@
 			--Reduces line count if we're low performance. Having fewer thresholds was actually less noticeable - j
 			local perfReduce = (jcms.performanceEstimate < 35 and 16) or (jcms.performanceEstimate < 15 and 32) or 0
 			local N = 32 - perfReduce
-			for k=1, N do
+			for k=1, N do --NOTE: Most expensive part of this function.
 				if k%(N/4)~=0 then
 					local i = k + math.Remap(yaw, 0, math.pi*2, 0, N)
 					local x, alpha = math.sin(i/N*math.pi*2)/2+0.5, math.cos(i/N*math.pi*2)
@@ -810,12 +825,15 @@
 				end
 			end
 
+			local br,bg,bb = jcms.color_bright:Unpack()
 			for i=1,4 do
-				local alpha = i==1 and alpha_east or i==2 and alpha_nrth or i==3 and alpha_west or alpha_suth
+				local alpha = jcms_dc_alpha[i]
 				if alpha > 0 then 
-					local x = i==1 and x_east or i==2 and x_nrth or i==3 and x_west or x_suth
-					local letter = i==1 and "E" or i==2 and "N" or i==3 and "W" or "S"
-					draw.SimpleText(letter, "jcms_hud_big", Lerp(x, -span, span), 32, ColorAlpha(jcms.color_bright, alpha*255), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+					local x = jcms_dc_ang[i]
+					local letter = jcms_dc_letters[i]
+					jcms_dc_dirCol:SetUnpacked(br,bg,bb, alpha*255)
+
+					draw.SimpleText(letter, "jcms_hud_big", Lerp(x, -span, span), 32, jcms_dc_dirCol, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
 				end
 			end
 
@@ -896,9 +914,16 @@
 				surface.SetAlphaMultiplier(alphamul*0.33)
 			end
 			surface.SetDrawColor(color)
-			local cmat = jcms.classmats[ class ]
-			surface.SetMaterial(cmat)
-			surface.DrawTexturedRectRotated(x-w/2+h/2+4, y, 96, 96, 0)
+
+			if dead and evacuated then
+				surface.SetMaterial(jcms.mat_evac)
+				surface.DrawTexturedRectRotated(x-w/2+h/2+4, y, 96, 96, 0)
+			else
+				local cmat = jcms.classmats[ class ]
+				surface.SetMaterial(cmat)
+				surface.DrawTexturedRectRotated(x-w/2+h/2+4, y, 96, 96, 0)
+			end
+
 			draw.SimpleText(nick, "jcms_hud_medium", x - w/2 + h, y, color, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 			
 			local cashLineX = x + w/2 - h + 26
@@ -915,9 +940,6 @@
 				surface.SetDrawColor(jcms.color_bright_alt)
 				surface.DrawRect(x - 48, y, armorWidth*armorFrac, 24)
 				jcms.hud_DrawStripedRect(x - 48 + armorWidth*armorFrac, y, armorWidth*(1-armorFrac), 24, 100)
-			elseif evacuated then
-				surface.SetMaterial(jcms.mat_evac)
-				surface.DrawTexturedRectRotated(x + w/2 - h/2 - 4, y, 72, 72, 0)
 			end
 		render.OverrideBlend( false )
 	end
@@ -1184,28 +1206,28 @@
 					ammofrac = clip1 / 4
 					ammofracAnim = 1 - (ti * 2) % 1
 				end
-
+			
 				local styleAmmo = jcms.cachedValues.crosshair_ammo
 				local ammoIsPermanent = styleAmmo % 2 == 0
 				if ammoIsPermanent then
 					ammofracAnim = math.max(ammofracAnim, 0.5)
 				end
 
-				if styleAmmo == 1 or styleAmmo == 2 then
+				if ammofracAnim > 0 and styleAmmo == 1 or styleAmmo == 2 then
 					local size = crosshairGap - wide*2
 					if size <= 16 then
 						size = crosshairGap + wide * 2 + 4
 					end
 					surface.SetDrawColor(R*ammofracAnim, G*ammofracAnim, B*ammofracAnim, 128)
-					jcms.draw_Circle(0, 0, size, size, wide*2, 16, -math.pi/2*ammofrac, math.pi/2*ammofrac)
-					jcms.draw_Circle(0, 0, size, size, wide*2, 16, -math.pi/2*ammofrac + math.pi, math.pi/2*ammofrac + math.pi)
-				elseif styleAmmo == 3 or styleAmmo == 4 then
-					if clip1 > 0 then
-						surface.SetFont("jcms_hud_medium")
-						surface.SetTextColor(R*ammofracAnim, G*ammofracAnim, B*ammofracAnim, 128)
-						surface.SetTextPos(off, off)
-						surface.DrawText(clip1)
-					end
+
+					--NOTE: Very expensive.
+					jcms.draw_Circle(0, 0, size, size, wide*2, 6, -math.pi/2*ammofrac, math.pi/2*ammofrac)
+					jcms.draw_Circle(0, 0, size, size, wide*2, 6, -math.pi/2*ammofrac + math.pi, math.pi/2*ammofrac + math.pi)
+				elseif ammofracAnim > 0 and styleAmmo == 3 or styleAmmo == 4 and clip1 > 0 then
+					surface.SetFont("jcms_hud_medium")
+					surface.SetTextColor(R*ammofracAnim, G*ammofracAnim, B*ammofracAnim, 128)
+					surface.SetTextPos(off, off)
+					surface.DrawText(clip1)
 				end
 				
 				local shouldDrawDot = jcms.cachedValues.crosshair_dot
@@ -1773,6 +1795,8 @@
 	jcms.mat_vignette = Material("jcms/vignette.png")
 
 	hook.Add("PreDrawEffects", "jcms_HUD", function()
+		if render.GetRenderTarget() then return end
+
 		draw.NoTexture()
 		render.OverrideBlend(false)
 		surface.SetAlphaMultiplier(1)
@@ -2356,7 +2380,7 @@
 -- // Regular HUD {{{
 
 	function jcms.hud_RegularDraw()
-		if jcms.disableHUD or render.GetRenderTarget() then return end
+		if jcms.disableHUD then return end
 		
 		local locPly = jcms.locPly
 
