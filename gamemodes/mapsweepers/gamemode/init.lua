@@ -23,11 +23,15 @@ DEFINE_BASECLASS("gamemode_base")
 include "sh_debugtools.lua"
 
 include "sh_bspReader.lua" --Data from the BSP. We probably(?) want to use this in mapgen and missions, so I put it at the top. - J
-bspReader.readLeafData()
-bspReader.readNodeData()
-bspReader.readPlaneData()
-bspReader.readPVSData()
-bspReader.readBrushData(CONTENTS_PLAYERCLIP)
+do
+	local bspReadStart = SysTime()
+	bspReader.readLeafData()
+	bspReader.readNodeData()
+	bspReader.readPlaneData()
+	bspReader.readPVSData()
+	bspReader.readBrushData(CONTENTS_PLAYERCLIP)
+	print("[MapSweepers] BSP Data read in: " .. tostring( math.Round(SysTime() - bspReadStart, 3) ) .. " seconds")
+end
 
 include "sh_ainReader.lua" --i like eating binrary numbrs- j
 ainReader.readNodeData()
@@ -1142,6 +1146,8 @@ end
 	end
 
 	function GM:PlayerNoClip(ply, flying)
+		if not flying then return true end -- Always allow stopping noclip
+
 		if jcms.director and jcms.director.debug then
 			return true
 		else
@@ -1621,7 +1627,7 @@ end
 
 -- // }}}
 
--- // Misc {{{
+-- // Maps {{{
 	local map_blacklist = { --CSS and TF2 maps have navmeshes, but they're incompatible with gmod.
 		--CSS
 			["cs_assault"] = true,
@@ -1866,6 +1872,41 @@ end
 			["zi_woods"] = true,
 	}
 
+	--[[
+		Detecting navmeshes / Nodegraphs is unfortunately highly unreliable.
+		As a bandaid I've created a system for bypassing these checks, which can
+		be set up manually, or automatically on loading a map.
+
+		This seems to sometimes happen even with default maps sometimes, so I'm just including everything.
+	--]]
+	jcms.validMaps = {
+		--Pre-made list to save people some trouble.
+		--Vanilla
+		["gm_construct"] = true,
+		["jcms_jcorpdistrict"] = true,
+		["jcms_mafiadistrict"] = true,
+		
+		--Recommended collection
+		["gm_voidtown"] = true,
+		["gm_citygateway"] = true,
+		["gm_diprip_refinery"] = true,
+		["gm_lair"] = true,
+		["gm_born"] = true,				--This one has packed content which means it just outright doesn't show up at all.
+		["gm_shattered_reality"] = true,
+		["gm_hillfoot_construct"] = true,
+	}
+
+	concommand.Add("jcms_addValidMap", function(ply, cmd, args)
+		if not(not ply:IsPlayer() or ply:IsAdmin()) then return end
+		
+		local map = tostring(args[1]) or ""
+		jcms.addValidMap(map)
+	end, nil, "Manually mark a map as compatible (for maps with packed navmeshes/nodegraphs).")
+
+	function jcms.addValidMap(map)
+		jcms.validMaps[map] = true
+	end
+
 	function jcms.generateValidMapOptions()
 		local validMaps = {}
 		
@@ -1875,10 +1916,11 @@ end
 		for i, map in ipairs(maps) do
 			map = map:gsub("%.bsp", "")
 			if
-				not map_blacklist[map]
-				and (map ~= game.GetMap())
+				not map_blacklist[map] and
+				(jcms.validMaps[map] or --Known as valid
+				((map ~= game.GetMap()) --or detected as valid (unreliable)
 				and file.Exists("maps/" .. map .. ".nav", "GAME")
-				and file.Exists("maps/graphs/" .. map .. ".ain", "GAME")
+				and file.Exists("maps/graphs/" .. map .. ".ain", "GAME")))
 			then
 				table.insert(validMaps, map)
 			end
@@ -1897,8 +1939,16 @@ end
 			end
 		end
 	end
+-- // }}}
 	
+-- // Misc {{{
 	function jcms.processBounty(npc, attacker, inflictor)
+		if jcms.director then
+			if jcms.director_IsSuddenDeath() then
+				return
+			end
+		end
+		
 		local bounty = npc.jcms_bounty or 0
 		
 		if bounty > 0 then
@@ -2066,7 +2116,7 @@ end
 	end, nil, "Instantly unlocks the terminal you're looking at.", FCVAR_CHEAT)
 	
 	concommand.Add("jcms_debug_enable", function(ply, cmd, args)
-		if ply:IsAdmin() then
+		if not ply:IsPlayer() or ply:IsAdmin() then
 			if jcms.director then
 				if tostring(args[1]) == "0" then
 					jcms.director.debug = false
@@ -2141,14 +2191,14 @@ end
 	end)
 	
 	concommand.Add("jcms_forcestart", function(ply, cmd, args)
-		if not jcms.director and ply:IsAdmin() then
+		if not jcms.director and (not ply:IsPlayer() or ply:IsAdmin()) then
 			-- TODO We can force-start the mission even if nobody is ready, which is going to start the mission without anyone at all.
 			jcms.mission_StartFromCVar()
 		end
 	end)
 
 	concommand.Add("jcms_mission", function(ply, cmd, args)
-		if not jcms.director and ply:IsAdmin() then
+		if not jcms.director and (not ply:IsPlayer() or ply:IsAdmin()) then
 			local data = jcms.missions[ args[1] ]
 
 			if data then
@@ -2190,12 +2240,20 @@ end
 	end, "Only works in-lobby. Sets the pending mission and enemy (for universal missions) types.")
 
 	concommand.Add("jcms_mission_randomize", function(ply, cmd, args)
-		if not jcms.director and ply:IsAdmin() then
+		if not jcms.director and (not ply:IsPlayer() or ply:IsAdmin()) then
 			jcms.mission_Randomize()
 		end
 	end, nil, "Only works in-lobby. Randomizes pending mission type.")
 
 	concommand.Add("jcms_jointeam", function(ply, cmd, args)
+		local restriction = jcms.cvar_npcteam_restrict:GetInt() -- 0: No restrictions, 1: Only post-evac, 2: Can never be an NPC
+		local canJoinNpcs = false
+		if restriction == 0 then
+			canJoinNpcs = true
+		elseif restriction == 1 then
+			canJoinNpcs = jcms.director and jcms.director.evacuated[ply]
+		end
+		
 		local team = tonumber(args[1]) or tostring(args[1])
 
 		if ply:GetObserverMode() == OBS_MODE_FIXED then
@@ -2205,7 +2263,7 @@ end
 			elseif team == 1 or team == "sweeper" or team == "jcorp" then
 				-- Sweeper
 				ply:SetNWInt("jcms_desiredteam", 1)
-			elseif not game.SinglePlayer() then
+			elseif canJoinNpcs and not game.SinglePlayer() then
 				if team == 2 or team == "npc" or team == "enemy" then
 					-- NPC
 					ply:SetNWInt("jcms_desiredteam", 2)
@@ -2216,7 +2274,7 @@ end
 		if jcms.director and not game.SinglePlayer() then
 			if (ply:GetObserverMode() == OBS_MODE_CHASE) or (ply:GetObserverMode() == OBS_MODE_NONE and not ply:Alive()) then
 				
-			if (team == 2 or team == "npc" or team == "enemy") and (ply:GetNWInt("jcms_desiredteam", 0) < 2) then
+			if canJoinNpcs and (team == 2 or team == "npc" or team == "enemy") and (ply:GetNWInt("jcms_desiredteam", 0) < 2) then
 					ply.jcms_classAtEvac = ply:GetNWString("jcms_class", "infantry")
 					ply:SetNWInt("jcms_desiredteam", 2)
 					ply:SetNWString("jcms_class", jcms.npc_PickPlayerNPCClass(jcms.director.faction))
@@ -2332,7 +2390,7 @@ end
 	end)
 
 	concommand.Add("jcms_setweaponprice", function(ply, cmd, args)
-		if ply:IsAdmin() then
+		if not ply:IsPlayer() or ply:IsAdmin() then
 			local class = tostring(args[1])
 			
 			if jcms.weapon_predefinedPrices[class] or weapons.GetStored(class) or jcms.weapon_prices[class] or jcms.weapon_HL2Prices[class] then
@@ -2369,7 +2427,7 @@ end
 	end)
 
 	concommand.Add("jcms_setorderdetails", function(ply, cmd, args)
-		if ply:IsAdmin() then
+		if not ply:IsPlayer() or ply:IsAdmin() then
 			local class = tostring(args[1])
 			local orderData = jcms.orders[class]
 			
@@ -2534,7 +2592,7 @@ end
 		sfw_thunderbolt = 499,
 		sfw_acidrain = 999,
 		sfw_fathom = 319,
-		sfw_meteor = 1319,
+		sfw_meteor = 1799,
 		sfw_vk21 = 519,
 
 		-- Sanctum 2
@@ -2689,6 +2747,29 @@ end
 		EmitSound("jcms_jetby", v, 0, CHAN_AUTO, 1, 100, 0, 100, 22, allPlayers)
 	end
 
+	function jcms.util_PerformRepairs(ent, ply, repairValue)
+		if jcms.director_IsSuddenDeath() then
+			return
+		end
+		
+		repairValue = tonumber(repairValue) or 7
+		if jcms.isPlayerEngineer(ply) then
+			repairValue = repairValue * 2.5
+		end
+		
+		local oldValue = ent:Health()
+		local newValue = math.min(ent:Health() + repairValue, ent:GetMaxHealth())
+		
+		if oldValue < newValue then
+			if newValue == ent:GetMaxHealth() then
+				ply:EmitSound("buttons/button9.wav", 100)
+			else
+				ply:EmitSound("buttons/lever7.wav", 100)
+			end
+			ent:SetHealth(newValue)
+		end
+	end
+
 	function jcms.util_UnHack(ent)
 		ent:SetHackedByRebels(false)
 		ent:EmitSound("weapons/stunstick/alyx_stunner" .. math.random(1,2) .. ".wav", 75, 200)
@@ -2730,6 +2811,8 @@ end
 	file.CreateDir("mapsweepers")
 	file.CreateDir("mapsweepers/server")
 
+	--TODO: These should probably have a standardised set-up function at this point, it's mostly duplicate code here.
+
 	do 
 		local runProgFile = "mapsweepers/server/runprogress_" .. (game.SinglePlayer() and "solo" or "multiplayer") .. ".dat"
 		hook.Add("InitPostEntity", "jcms_RestorePreviousRun", function()
@@ -2770,16 +2853,44 @@ end
 		end)
 	end
 
+	do
+		local validMapsFile = "mapsweepers/server/validMaps.json"
+		hook.Add("InitPostEntity", "jcms_RestorePlayerData", function()
+			if file.Exists(validMapsFile, "DATA") then
+				local dataTxt = file.Read(validMapsFile, "DATA")
+				local dataTbl = util.JSONToTable(dataTxt)
+
+				table.Merge(jcms.validMaps, dataTbl, true)
+			end
+		end)
+
+		hook.Add("ShutDown", "jcms_SavePlayerData", function()
+			local dataStr = util.TableToJSON(jcms.validMaps)
+			file.Write(validMapsFile, dataStr)
+		end)
+	end
+
 -- // }}}
 
 -- // Post {{{
 
-	function jcms.recolorAllDollies()
+	function jcms.RecolorAllDollies()
 		-- this is EXTREMELY important
 		for i, ent in ipairs(ents.GetAll()) do
 			if ent.GetModel and ent:GetModel() == "models/maxofs2d/companion_doll.mdl" then
 				ent:SetColor(Color(255, 0, 0))
 			end
+		end
+	end
+
+	function jcms.ReplaceAllCrates()
+		-- TODO Account for hammer names and I/O
+		for i, oldcrate in ipairs(ents.FindByClass("item_ammo_crate")) do
+			local newcrate = ents.Create("jcms_ammo_crate")
+			newcrate:SetPos(oldcrate:GetPos())
+			newcrate:SetAngles(oldcrate:GetAngles())
+			oldcrate:Remove()
+			newcrate:Spawn()
 		end
 	end
 
