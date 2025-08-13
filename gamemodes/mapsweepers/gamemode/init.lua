@@ -361,8 +361,13 @@ end
 		if IsValid(attacker) and (attacker:GetClass() == "npc_headcrab_poison" or attacker:GetClass() == "npc_headcrab_black") then
 			--Their default behaviour seems to be hardcoded in hl2, and messing with the damageinfo breaks it (causes them to instakill).
 			--This is a bandaid solution to that. 
+
 			local hp = ent:Health()
-			dmg:SetDamage( math.min(hp-5, dmg:GetDamage()) )
+			if ent:IsPlayer() then
+				dmg:SetDamage( math.min(hp-5, dmg:GetDamage()) )
+			else
+				dmg:SetDamage(math.min(math.max(0, hp-1), 5))
+			end
 		end
 	end)
 	
@@ -516,6 +521,20 @@ end
 			end
 		end
 	end)
+
+	hook.Add("PlayerDroppedWeapon", "jcms_weaponDrop", function(owner, wep)
+		if IsValid(owner) and IsValid(wep) and owner:IsPlayer() then
+			timer.Simple(0, function()
+				if IsValid(owner) and IsValid(wep) then
+					if jcms.util_IsStunstick(wep) then
+						owner:PickupWeapon(wep)
+					else
+						wep.jcms_canPickup = true -- So that we can pick it back up.
+					end
+				end
+			end)
+		end
+	end)
 -- // }}}
 
 -- // Run Progress {{{
@@ -613,8 +632,8 @@ end
 
 	function jcms.runprogress_SetLastMission()
 		local rp = jcms.runprogress
-		rp.lastMission = jcms.util_GetMissionFaction()
-		rp.lastFaction = jcms.util_GetMissionType()
+		rp.lastMission = jcms.util_GetMissionType()
+		rp.lastFaction = jcms.util_GetMissionFaction()
 	end
 
 -- // }}}
@@ -1110,7 +1129,7 @@ end
 			return true
 		else
 			if jcms.team_JCorp_player(ply) then
-				if (wep:CreatedByMap() and wep:IsPlayerHolding()) then
+				if (wep:CreatedByMap() and wep:IsPlayerHolding()) or (wep.jcms_canPickup) then
 					return true
 				else
 					local ammoType = wep:GetPrimaryAmmoType()
@@ -2779,6 +2798,15 @@ end
 		ed:SetFlags(1)
 		ed:SetColor(jcms.util_colorIntegerJCorp) -- Red effect
 		util.Effect("jcms_shieldeffect", ed)
+
+		if ent.nextAttack then
+			ent.nextAttack = CurTime() + 0.25
+		end
+
+		if ent.NextSlowThink and ent.TurretSlowThink then
+			ent.NextSlowThink = CurTime() - 0.1
+			ent:TurretSlowThink()
+		end
 	end
 
 	function jcms_util_shieldDamageEffect(dmginfo, shieldDmg)
