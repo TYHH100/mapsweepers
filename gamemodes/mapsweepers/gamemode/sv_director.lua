@@ -1539,6 +1539,8 @@
 				local plyCount = table.Count(d.cachedNicknames)
 				for sid64, nickname in pairs(d.cachedNicknames) do
 					local ply = player.GetBySteamID64(sid64)
+					if not ply then continue end
+					
 					local pd = {}
 
 					pd.sid64 = sid64
@@ -1548,6 +1550,7 @@
 					pd.wasSweeper = pd.evacuated or d.lockstates[sid64] == "sweeper" or d.kills_direct[sid64]>0 or d.kills_defenses[sid64]>0 or d.kills_explosions[sid64]>0 or d.deaths_sweeper[sid64]>0 or d.ordersUsedCounts[sid64]>0
 					pd.wasNPC = d.lockstates[sid64] == "npc" or d.kills_sweepers[sid64]>0 or d.kills_turrets[sid64]>0 or d.deaths_npc[sid64]>0
 
+					pd.class = ply:GetNWString("jcms_desiredclass", "infantry")
 					if pd.wasSweeper then
 						pd.kills_direct = d.kills_direct[sid64]
 						pd.kills_defenses = d.kills_defenses[sid64]

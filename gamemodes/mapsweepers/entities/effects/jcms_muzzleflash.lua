@@ -64,6 +64,22 @@ function EFFECT:Init(data)
 			mins:Add(pos)
 			maxs:Add(pos)
 			self:SetRenderBoundsWS(mins, maxs)
+		elseif turret:GetClass() == "jcms_emplacement" then
+			self.tank = turret
+			self.forward = 14
+			self.offset = data:GetStart()
+
+			local v, a = turret:GetBonePosition(1)
+			a = a or Angle(0, 0, 0)
+			self.normal = a:Right()
+			self.normal:Mul(-1)
+			self.color = Color(unpack(colors[self.matId]))
+			
+			local pos = turret:GetPos()
+			local mins, maxs = turret:GetRenderBounds()
+			mins:Add(pos)
+			maxs:Add(pos)
+			self:SetRenderBoundsWS(mins, maxs)
 		else
 			self.turret = turret
 			local tkind = self.turret.GetTurretKind and self.turret:GetTurretKind() or "smg"

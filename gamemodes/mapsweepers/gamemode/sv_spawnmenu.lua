@@ -565,7 +565,7 @@
 			end
 		},
 
-		--[[apc = {
+		apc = {
 			category = jcms.SPAWNCAT_MOBILITY,
 			cost = 600,
 			cooldown = 600,
@@ -595,7 +595,7 @@
 					apc:CPPISetOwner( game.GetWorld() )
 				end
 			end
-		},]]
+		},
 
 		hovertank = {
 			category = jcms.SPAWNCAT_MOBILITY,
@@ -1493,7 +1493,7 @@
 								phys:SetVelocityInstantaneous(norm)
 								phys:SetDamping(0, 0)
 
-								util.SpriteTrail(ent, 0, color_white, true, 2, 0, 3, 0.5, "trails/smoke")
+								--util.SpriteTrail(ent, 0, color_white, true, 2, 0, 3, 0.5, "trails/smoke")
 							end
 						end )
 					end

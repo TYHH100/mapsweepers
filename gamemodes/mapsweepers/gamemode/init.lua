@@ -56,7 +56,16 @@ include "sh_statistics.lua"
 		for i, v in ipairs(missionFiles) do 
 			include("missions/types/" .. v)
 		end
+	end
+-- // }}}
+
+-- // Prefab Includes {{{
+	do
 		include "prefabs/sv_prefabs.lua"
+		local prefabFiles, _ = file.Find( "mapsweepers/gamemode/prefabs/types/*.lua", "LUA")
+		for i, v in ipairs(prefabFiles) do 
+			include("prefabs/types/" .. v)
+		end
 	end
 -- // }}}
 
@@ -794,7 +803,7 @@ end
 		if time >= nextWaterThink then
 			jcms.leechesThinkTime = time + interval
 
-			if jcms.team_JCorp_player(ply) then
+			if jcms.team_JCorp_player(ply) and not IsValid(ply:GetNWEntity("jcms_vehicle")) then
 				local wl = ply:WaterLevel()
 
 				if (wl > 0) then
@@ -1217,7 +1226,7 @@ end
 			ply:SetViewPunchAngles(Angle(-1, math.Rand(-0.2, 0.2), 0))
 		end
 
-		ply:SetArmor( math.Clamp((armor - armorDmg)*armorDmgMultiplier, 0, ply:GetMaxArmor()) )
+		ply:SetArmor( math.max((armor - armorDmg)*armorDmgMultiplier, 0) )
 		
 		if ply:Armor() <= 0 then
 			local ed = EffectData()
@@ -2854,6 +2863,8 @@ end
 		end)
 
 		hook.Add("ShutDown", "jcms_SaveRunData", function()
+			if not jcms.fullyLoaded then return end
+
 			if jcms.director and not jcms.director.gameover then
 				jcms.runprogress_Reset()
 				--Resets our run if we're in a mission. Prevents save-scumming.
@@ -2876,6 +2887,8 @@ end
 		end)
 
 		hook.Add("ShutDown", "jcms_SavePlayerData", function()
+			if not jcms.fullyLoaded then return end
+
 			local dataStr = util.Compress(util.TableToJSON(jcms.playerData))
 			file.Write(playerDataFile, dataStr)
 		end)
@@ -2883,7 +2896,7 @@ end
 
 	do
 		local validMapsFile = "mapsweepers/server/validMaps.json"
-		hook.Add("InitPostEntity", "jcms_RestorePlayerData", function()
+		hook.Add("InitPostEntity", "jcms_RestoreValidMaps", function()
 			if file.Exists(validMapsFile, "DATA") then
 				local dataTxt = file.Read(validMapsFile, "DATA")
 				local dataTbl = util.JSONToTable(dataTxt)
@@ -2892,7 +2905,9 @@ end
 			end
 		end)
 
-		hook.Add("ShutDown", "jcms_SavePlayerData", function()
+		hook.Add("ShutDown", "jcms_SaveValidMaps", function()
+			if not jcms.fullyLoaded then return end
+
 			local dataStr = util.TableToJSON(jcms.validMaps)
 			file.Write(validMapsFile, dataStr)
 		end)

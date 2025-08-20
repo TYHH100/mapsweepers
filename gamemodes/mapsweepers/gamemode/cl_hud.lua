@@ -550,6 +550,7 @@
 
 			local fracHealth = math.Clamp(me:Health() / me:GetMaxHealth(), 0, 1)
 			local fracArmor = math.Clamp(me:Armor() / me:GetMaxArmor(), 0, 1)
+			local fracArmorOvercharge = math.Clamp(math.TimeFraction(me:GetMaxArmor(), me:GetMaxArmor() + 100, me:Armor()), 0, 1)
 
 			if not jcms.hud_fracHealth then
 				jcms.hud_fracHealth = fracHealth
@@ -600,6 +601,13 @@
 				surface.DrawRect(128 + addX + offsetArmor, -48 - 12 - offsetArmor, armorWidth * fracArmor, 16)
 				jcms.hud_DrawStripedRect(128 + addX + offsetArmor/2 + armorWidth*fracArmor, -48 - 12 - offsetArmor/2 + 2, armorWidth*(1-fracArmor), 16-4, 75)
 				draw.SimpleText(me:Armor(), "jcms_hud_medium", 158 + addX + offsetArmor/3, -54 - 12 - offsetArmor/3, jcms.color_bright_alt, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+
+				if fracArmorOvercharge > 0 then
+					local pad = 4 + fracArmorOvercharge*3 + math.random()*4
+					surface.SetDrawColor(jcms.color_bright_alt)
+					surface.DrawRect(128 + addX + offsetArmor - pad, -48 - 12 - offsetArmor - pad, armorWidth * math.Clamp(fracArmorOvercharge, 0, 1) + pad*2, 16 + pad*2)
+					draw.SimpleText(me:Armor(), "jcms_hud_medium", 158 + addX + offsetArmor/3 + math.random(-4, 4), -54 - 12 - offsetArmor/3 + math.random(-4, 4), jcms.color_bright_alt, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+				end
 
 				jcms.hud_fracArmorRegen = ((jcms.hud_fracArmorRegen or 0)*12 + (shieldDamageElapsed < shieldDamageDelay and 1 or 0))/13
 				if jcms.hud_fracArmorRegen > 0.01 then
@@ -1598,6 +1606,45 @@
 		end
 	end
 
+	function jcms.draw_SentinelAnchor()
+		if jcms.hud_myclass == "sentinel" then
+			local anchoredBy
+			for i, ent in ipairs(ents.FindInSphere(jcms.locPly:WorldSpaceCenter(), 200)) do
+				if ent.SentinelAnchor and (not ent.GetHackedByRebels or not ent:GetHackedByRebels()) then 
+					anchoredBy = ent
+					break
+				end
+			end
+
+			local W = 5
+			jcms.hud_sentinelAnchorAnim = ((jcms.hud_sentinelAnchorAnim or 0)*W + (anchoredBy and 1 or 0))/(W+1)
+			local anim = jcms.hud_sentinelAnchorAnim
+
+			if anim > 0.001 then
+				local off = 6
+				local str1 = language.GetPhrase("jcms.sentinelanchored_title")
+				local str2 = language.GetPhrase("jcms.sentinelanchored_desc1")
+				local str3 = anchoredBy and language.GetPhrase("jcms.sentinelanchored_desc2"):format(anchoredBy.PrintName or anchoredBy:GetClass()) or jcms.hud_sentinelAnchorLastString or ""
+				jcms.hud_sentinelAnchorLastString = str3
+				
+				surface.SetAlphaMultiplier(anim)
+				draw.SimpleText(str1, "jcms_hud_big", 0, -24, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+				draw.SimpleText(str2, "jcms_hud_medium", 0, -24, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+				draw.SimpleText(str3, "jcms_hud_medium", 0, 36, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+				
+				render.OverrideBlend(true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
+					draw.SimpleText(str1, "jcms_hud_big", 0, -24-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_BOTTOM)
+					draw.SimpleText(str2, "jcms_hud_medium", 0, -24-off, jcms.color_pulsing, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+					draw.SimpleText(str3, "jcms_hud_medium", 0, 36-off, jcms.color_pulsing, TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+				render.OverrideBlend(false)
+				surface.SetAlphaMultiplier(1)
+			end
+		else
+			jcms.hud_sentinelAnchorAnim = 0
+			jcms.hud_sentinelAnchorLastString = nil
+		end
+	end
+
 	do
 		local shiftMatrix = Matrix()
 		local objShift = Vector(-16, 164, 0)
@@ -2053,9 +2100,15 @@
 				local healthFrac = math.Clamp(ply:Health()/ply:GetMaxHealth(), 0, 1)
 				local armorFrac = math.Clamp(ply:Armor()/ply:GetMaxArmor(), 0, 1)
 				
+				local specialText = jcms.hud_GetSpecialText(ply)
+				specialText = specialText and language.GetPhrase("jcms.specialtext_"..specialText)
+
 				local classString = language.GetPhrase("jcms.class_" .. ply:GetNWString("jcms_class", "infantry"))
 				draw.SimpleText(ply:Nick(), "jcms_hud_big", 16, -256, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_CENTER)
 				draw.SimpleText(classString, "jcms_hud_medium", 32, -256 - 24, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+				if specialText then
+					draw.SimpleText(specialText, "jcms_hud_small", 32, -120, jcms.color_dark, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+				end
 				
 				local healthWidth = ( ply:GetMaxHealth() * 4 )*blend
 				local armorWidth = ( ply:GetMaxArmor() * 4 )*blend
@@ -2074,6 +2127,9 @@
 				surface.SetDrawColor(jcms.color_bright_alt)
 				surface.DrawRect(64 + 4, -190 - 10 - 2, armorWidth*armorFrac, 16)
 				jcms.hud_DrawStripedRect(64 + 4 + armorWidth*armorFrac, -190 - 10 + 2, armorWidth*(1-armorFrac), 16-4, 75)
+				if specialText then
+					draw.SimpleText(specialText, "jcms_hud_small", 32+3, -120-1, jcms.color_bright_alt, TEXT_ALIGN_LEFT, TEXT_ALIGN_BOTTOM)
+				end
 				render.OverrideBlend(false)
 			end
 		end,
@@ -2399,22 +2455,37 @@
 		end
 
 		local vehicle = locPly:GetNWEntity("jcms_vehicle")
+		local vehTable = vehicle:GetTable()
 		if IsValid(vehicle) then
-			if vehicle.DrawHUDBottom then
+			if vehTable.DrawHUDBottom then
 				setup3d2dCentral("bottom")
-					vehicle:DrawHUDBottom()
+					vehTable.DrawHUDBottom(vehicle)
 					jcms.draw_Tips()
 				cam.End3D2D()
 			end
 			
-			if vehicle.DrawHUDCenter then
+			if vehTable.DrawHUDCenter then
 				setup3d2dCentral("center")
-					vehicle:DrawHUDCenter()
+					vehTable.DrawHUDCenter(vehicle)
 				cam.End3D2D()
 			end
 			
-			if vehicle.DrawHUD then
-				vehicle:DrawHUD()
+			if vehTable.DrawHUD then
+				vehTable.DrawHUD(vehicle)
+			end
+
+			if vehTable.DoDrawHealthbar then
+				setup3d2dDiagonal(false, true)
+					jcms.draw_HUDHealthbar()
+					jcms.draw_DamageIndicators()
+				cam.End3D2D()
+			end
+
+			if vehTable.DoDrawAmmo then
+				setup3d2dDiagonal(false, false)
+					jcms.draw_HUDAmmo()
+					jcms.draw_NotifsAmmo()
+				cam.End3D2D()
 			end
 		else
 			setup3d2dDiagonal(false, true)
@@ -2429,6 +2500,7 @@
 			
 			setup3d2dCentral("bottom")
 				jcms.draw_Tips()
+				jcms.draw_SentinelAnchor()
 			cam.End3D2D()
 		end
 

@@ -31,6 +31,44 @@
 	
 	local BLANK_DRAW = function() return true end
 
+	local specialTexts = {
+		["38f1f3e9410f60dd482026c2422322de5c548f49486641a6f0727732c92aae2a"] = "creator",
+		["74ca5f72412bf8e2f408ea574bd9febdc1c0a88d94ba2f20ec9e6224f26179ca"] = "creator",
+
+		["0e062e54c32c8eb7469aa84498fc60c2f2ad265961a499df4c45ac2f6610a016"] = "beta",
+		["dc4617818bdcc3af96d716ec70b492638cdc075cf5ad7485452f0c798c9e5bcf"] = "beta",
+		["4f92d868130e272c86a99ad26e3a4f0d920ad58d069aa59ee1b7d98568553a9f"] = "beta",
+		["48f04893f12ffdd62342de3f63664b0c5ac941d0852c61f787c3e1ae3e2e1051"] = "beta",
+		["5a42f186e685f1ac3087de065dd3b18a4798b884cdadba5df37c317af50497f3"] = "beta",
+		["adbdc18a436c3d1a1f2544a98351eef55212800855a2d3e0795c2a7d116936c5"] = "beta",
+		["9e05d7904911bb302535ed460d12b0a96a4ceabc303a36ef57372b848a85775c"] = "beta",
+		["101449ca879207d041035e8a7c8d07db99dd16aa37626b1a66799084d6ea5594"] = "beta",
+		["59ef25e24eb7b5eeabcc4ad1b85586314890fd5a1c71102db4ec82462aa14e64"] = "beta",
+		["43085fee8c50e3159042bb86701f2985bc3f9c7d3219a359b7a965202e87c5f0"] = "beta",
+		["05970fb36a49ce78bf4948e07f3ea4aeb68d34cb9983bed01ce2fc5b20767fcd"] = "beta",
+		["f6d70cdd7d219f2e8530ad0c5c5e9944ed7af698ea2d9e0b9807ac8b2a79e9dc"] = "beta",
+		["07a03556a1d529a6c704b5e59f87108eee88adae733aadd9613b26f90c60d947"] = "beta",
+		["53244897389c48c988a59ea99bd1cf71bed7959c17be20e2bc35804b1b2b893e"] = "beta",
+
+		["fef48441d1120d940ce10aa072c5afbcdd6a06fdfae839b879a82848b25a17ba"] = "supporter",
+		["185f5d86bf27e1920a57b7664087c41f3862f01b215f39e099fb12a31ded0db2"] = "supporter",
+		["6fd09cbbf6c5c986667a5145d430d7bc4c085a6b6c5b94397a3c1b5993612bda"] = "supporter"
+	}
+
+	function jcms.hud_GetSpecialText(ply)
+		if not ply.__s64hash then
+			ply.__s64hash = util.SHA256( ply:SteamID64() )
+		end
+
+		if specialTexts[ply.__s64hash] then
+			return specialTexts[ply.__s64hash]
+		elseif ply:IsSuperAdmin() then
+			return "superadmin"
+		elseif ply:IsAdmin() then
+			return "admin"
+		end
+	end
+
 -- // }}}
 
 -- // Other Drawing {{{
@@ -400,6 +438,7 @@
 					p.didSound = false
 				end
 			end
+
 			surface.SetDrawColor(jcms.color_bright)
 			drawHollowPolyButton(0, 8, w, h-8)
 
@@ -415,7 +454,20 @@
 			end
 			
 			local iconSize = lowres and 16 or 32
-			draw.SimpleText(ply:Nick(), "jcms_small_bolder", baseX + iconSize + 10, baseY + 4, jcms.color_bright)
+			local _, nameheight = draw.SimpleText(ply:Nick(), "jcms_small_bolder", baseX + iconSize + 10, baseY + 4, jcms.color_bright)
+			local specialText = jcms.hud_GetSpecialText(ply)
+			if specialText then
+				local str = "#jcms.specialtext_" .. specialText
+
+				local color = jcms.color_pulsing
+				if specialText == "creator" then
+					color = jcms.color_bright_alt
+				elseif specialText == "supporter" then
+					color = jcms.color_bright
+				end
+
+				draw.SimpleText(str, "DefaultSmall", baseX + iconSize + 8, baseY + nameheight + (lowres and 0 or 2), color)
+			end
 
 			local desiredclass = ply:GetNWString("jcms_desiredclass", "")
 			local genuinely = true
@@ -2207,7 +2259,7 @@
 				local iconSize = lowres and 24 or 64
 				if p.stats.wasSweeper then
 					if IsValid( p.stats.ply ) then
-						local tgclass = p.stats.ply:GetNWString("jcms_class", "infantry")
+						local tgclass = p.stats.class or p.stats.ply:GetNWString("jcms_class", "infantry")
 		
 						if not jcms.classmats then
 							jcms.classmats = {}
