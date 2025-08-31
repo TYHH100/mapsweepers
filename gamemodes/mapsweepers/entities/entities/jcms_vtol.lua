@@ -538,6 +538,8 @@ if SERVER then
 	end
 	
 	function ENT:Use(activator)
+		if IsValid(activator) and activator:IsPlayer() and (not jcms.team_JCorp_player(activator)) then return end
+		
 		if not IsValid(activator:GetNWEntity("jcms_vehicle")) and (not self.jcms_destroyed) and (self:GetIsWorking()) then
 			local driver = self:GetDriver()
 			if IsValid(driver) then
@@ -666,6 +668,10 @@ if SERVER then
 			ply:SetEyeAngles(self:GetAngles())
 			self:EmitSound("physics/body/body_medium_impact_soft4.wav")
 		end
+	end
+
+	function ENT:RedirectDamage(driver, dmg)
+		dmg:SetDamage(0)
 	end
 end
 

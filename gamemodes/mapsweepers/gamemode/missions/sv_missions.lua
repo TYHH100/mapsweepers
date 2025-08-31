@@ -146,6 +146,9 @@
 			if shouldEnd then 
 				timer.Remove("jcms_mission_run")
 				game.GetWorld():SetNWFloat("jcms_mapgen_progress", 1)
+
+				game.GetWorld():SetNWFloat("jcms_difficulty", jcms.runprogress_GetDifficulty())
+				game.GetWorld():SetNWInt("jcms_winstreak", jcms.runprogress.winstreak)
 			end
 		end)
 	end
@@ -299,7 +302,7 @@
 						jcms.net_SendCashBonuses(ply, bonuses, oldStartingCash, newStartingCash)
 					end
 				end
-			else
+			elseif not jcms.serverExtension_forcedEvac then
 				for i, pd in ipairs( postMissionStats.players ) do
 					local sid64 = pd.sid64
 
@@ -343,6 +346,7 @@
 		-- }}}
 		
 		jcms.serverExtension_forcedEvac = false
+		jcms.serverExtension_suddenDeath = false
 	end
 
 	function jcms.mission_SetStartDelay(delay)

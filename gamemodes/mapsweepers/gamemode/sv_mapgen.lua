@@ -114,6 +114,8 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 -- // }}}
 
 -- // Util {{{
+	local JCMS_MASK_SOLIDNOCLIPS = bit.bor(CONTENTS_SOLID, CONTENTS_WINDOW, CONTENTS_GRATE, CONTENTS_OPAQUE, CONTENTS_MOVEABLE)
+	--Note: CONTENTS_DETAIL includes playerclips. Perhaps detail includes anything that doesn't split visleaves?
 	function jcms.mapgen_ValidArea(area)
 		--Are we a trigger_hurt or underwater
 		if jcms.mapdata and not(jcms.mapdata.validAreaDict[area] == nil) then return jcms.mapdata.validAreaDict[area] end --Optimisation, going to be using this func outside mapgen in future.
@@ -143,10 +145,10 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		local floorCheck = util.TraceLine({
 			start = centre,
 			endpos = centre - Vector(0,0,10),
-			mask = MASK_NPCSOLID_BRUSHONLY
+			mask = JCMS_MASK_SOLIDNOCLIPS
 		})
 
-		if floorCheck.HitNoDraw then 
+		if floorCheck.HitNoDraw then
 			return false
 		end
 
@@ -154,7 +156,7 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		local tr = util.TraceLine({
 			start = centre,
 			endpos = centre + Vector(0,0,32000), 
-			mask = MASK_NPCSOLID_BRUSHONLY
+			mask = JCMS_MASK_SOLIDNOCLIPS
 		})
 
 		if tr.HitNoDraw then --We've hit the bottom of a nodraw brush, and are probably under a road (or some other brush poking through a displacement)
@@ -164,7 +166,7 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		local backTrace = util.TraceLine({
 			start = tr.HitPos,
 			endpos = centre,
-			mask = MASK_NPCWORLDSTATIC
+			mask = JCMS_MASK_SOLIDNOCLIPS
 		})
 		
 		if centre:DistToSqr(backTrace.HitPos) > 5^2 then
@@ -186,7 +188,7 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		for i, area in ipairs(areasToCheck or navmesh.GetAllNavAreas()) do
 			--local depth = jcms.mapdata.areaDepths[area]
 			--if depth and depth > avgDepth then
-				local score = 1/jcms.mapgen_GetDistanceFromCenterRelative( area:GetCenter() )
+				local score = 1 / math.max(1, jcms.mapgen_GetDistanceFromCenterRelative( area:GetCenter() ))
 				midAreaWeights[ area ] = score
 			--end
 		end
@@ -675,6 +677,7 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 		connectionDist = math.max(1, tonumber(connectionDist) or subdivisionSize * 1.9)
 		assert( connectionDist < subdivisionSize * 4, "[jcms.mapgen_VectorGrid] Connection distance is too high, your PC wouldn't like it." )
 
+		local extremePoints = {}
 		local subdiv = subdivisionSize
 		local connectionDist2 = connectionDist * connectionDist
 		for i, area in ipairs(areas) do
@@ -691,16 +694,17 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 					vx = xSubdivCount==1 and (vx + areaSizeX/2) or (vx + subdiv * (x-1))
 					vy = ySubdivCount==1 and (vy + areaSizeY/2) or (vy + subdiv * (y-1))
 					v:SetUnpacked(vx, vy, vz)
-					v.z = area:GetZ(v) 
+					v.z = area:GetZ(v)
 					if bit.band(util.PointContents(v), CONTENTS_SOLID) == 0 then
 						table.insert(getChunkTable(vx, vy, v.z), v)
+
+						if (x==1 or x==xSubdivCount) and (y==1 or y==ySubdivCount) then
+							extremePoints[v] = area
+						end
 					end
 				end
 			end
 		end
-
-		--todo: Auto-connect within our area, 
-		--Auto connect the extreme-edges of navareas to adjacent ones.
 
 		local tr_res = {}
 		local tr_data = { 
@@ -727,13 +731,22 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 							local zDiminishDist2 = (ptx - optx)^2 + (pty - opty)^2 + ((ptz - optz)*0.25)^2
 							
 							if zDiminishDist2 <= connectionDist2 then
-								vStart:SetUnpacked( ptx, pty, ptz + subdiv/2 )
-								vEnd:SetUnpacked( optx, opty, optz + subdiv )
-								tr_data.start = vStart
-								tr_data.endpos = vEnd
-								util.TraceLine(tr_data)
+								local shouldConnect = false
+								if extremePoints[pt] and extremePoints[opt] and extremePoints[pt] ~= extremePoints[opt] and extremePoints[pt]:IsConnected(extremePoints[opt]) then
+									shouldConnect = true
+								else
+									vStart:SetUnpacked( ptx, pty, ptz + subdiv/2 )
+									vEnd:SetUnpacked( optx, opty, optz + subdiv )
+									tr_data.start = vStart
+									tr_data.endpos = vEnd
+									util.TraceLine(tr_data)
 
-								if not tr_res.Hit then
+									if not tr_res.Hit then
+										shouldConnect = true
+									end
+								end
+
+								if shouldConnect then
 									if not connections[pt] then
 										connections[pt] = { opt }
 									else
@@ -758,6 +771,14 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 				chunks[chunkId] = nil
 			end
 		end
+
+		--[[timer.Simple(1, function()
+			for pt1,cs in pairs(connections) do
+				for i, pt2 in ipairs(cs) do
+					debugoverlay.Line(pt1, pt2, 1, ColorRand(), true)
+				end
+			end
+		end)]]
 
 		return connections, chunks
 	end
@@ -859,9 +880,9 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 			end 
 		end
 
+		local pathsTried = 0
 		if #allPoints > 1 then
 
-			local T1 = SysTime()
 			for i, pt in ipairs(allPoints) do
 				local oi
 				repeat
@@ -879,26 +900,147 @@ jcms.MAPGEN_CONSTRUCT_DIAMETER = math.sqrt(82411875)
 					end
 				end
 
+				pathsTried = pathsTried + 1
 				if pathLength > bestPathLength then
 					bestPath = path
 					bestPathLength = pathLength
 				end
 
-				if bestPath then
+				local chance = 1-(2/(pathsTried+1))
+				local rng = math.random()
+				if bestPath and pathsTried >= math.min(#allPoints, 2) and rng<chance then
 					break
 				end
 			end
 
-			timer.Simple(0.5, function()
+			--[[timer.Simple(0.5, function()
 				if bestPath then
 					for j=1, #bestPath-1 do
 						local v1, v2 = bestPath[j], bestPath[j+1]
 						debugoverlay.Line(v1, v2, 5, HSVToColor(j/#bestPath*360, 0.8, 1), true)
 					end
 				end
-			end)
+			end)]]
 
 			return bestPath, bestPathLength
+		end
+	end
+
+	function jcms.mapgen_GenLongPath(areas, traceDist, wallCostMultiplier, fromVector)
+		local connections, chunks = jcms.mapgen_VectorGrid(areas, math.Rand(0.0220, 0.0280) * 6000)
+		local costs = jcms.mapgen_VectorGridCosts_WallProximity(connections, chunks, traceDist or 256, tonumber(wallCostMultiplier) or 15000, true)
+
+		local bestPath = nil
+		local bestPathLength = 0
+		
+		local minCost = math.huge
+		local sumCost = 0
+		local pointsCount = 0
+		for pt in pairs(connections) do
+			minCost = math.min( minCost, costs[pt] )
+			sumCost = sumCost + costs[pt]
+			pointsCount = pointsCount + 1
+		end
+		local avgCost = sumCost / pointsCount 
+
+		local allPoints = {}
+		for pt in pairs(connections) do
+			if costs[ pt ] <= (minCost*5 + avgCost)/6 then
+				table.insert(allPoints, pt)
+			end 
+		end
+
+		if #allPoints > 1 then
+			local closestPtDist2, closestPt = math.huge
+			for i, pt in ipairs(allPoints) do
+				local dist2 = pt:DistToSqr(fromVector)
+				if dist2 < closestPtDist2 then
+					closestPtDist2 = dist2
+					closestPt = pt
+				end
+			end
+
+			if closestPt then
+				local farawayPoints = {}
+				local maxDist2 = 0
+				for i, pt in ipairs(allPoints) do
+					local dist2 = closestPt:DistToSqr(pt)
+					if dist2 > maxDist2 then
+						maxDist2 = dist2
+					end
+				end
+
+				local halfwayDist2 = (math.sqrt(maxDist2)*0.67)^2
+				for i, pt in ipairs(allPoints) do
+					if closestPt:DistToSqr(pt) >= halfwayDist2 then
+						table.insert(farawayPoints, pt)
+					end
+				end
+
+				table.Shuffle(farawayPoints)
+				for i, pt in ipairs(farawayPoints) do
+					local path = jcms.pathfinder.navigateVectorGrid(connections, costs, closestPt, pt)
+					local pathLength = 0
+
+					if path then
+						for j=1, #path-1 do
+							local v1, v2 = path[j], path[j+1]
+							pathLength = pathLength + v1:Distance(v2)
+						end
+
+						timer.Simple(0.5, function()
+							if path then
+								for j=1, #path-1 do
+									local v1, v2 = path[j], path[j+1]
+									debugoverlay.Line(v1, v2, 5, HSVToColor(j/#path*360, 0.8, 1), true)
+								end
+							end
+						end)
+
+						return path, pathLength
+					end
+				end
+			end
+		end
+	end
+
+	function jcms.mapgen_PickBestFacingDirection(fromVector, trace_distance, trace_filter, trace_mask)
+		local n = 24
+		local fx, fy, fz = fromVector:Unpack()
+
+		local traceResult = {}
+		local traceData = {
+			mask = trace_mask,
+			filter = trace_filter,
+			start = fromVector,
+			endpos = Vector(0, 0, 0),
+			output = traceResult
+		}
+
+		trace_distance = math.max(tonumber(trace_distance) or 256, 0)
+		local results = {}
+		local max = 0
+		for i=1, n do
+			local a = math.pi*2/n*i
+			local cos, sin = math.cos(a), math.sin(a)
+			traceData.endpos:SetUnpacked(fx + cos*trace_distance, fy + sin*trace_distance, fz)
+			util.TraceLine(traceData)
+			results[i] = traceResult.StartSolid and 0 or traceResult.Fraction
+			max = math.max(results[i], max)
+		end
+		
+		if max > 0 then
+			local bests = {}
+			for i=1, n do
+				if results[i] >= max then
+					table.insert(bests, i)
+				end
+			end
+
+			local besti = bests[math.random(1, #bests)] or 0
+			return true, Angle(0, 360/n*besti, 0)
+		else
+			return false, Angle(0, math.random()*360, 0)
 		end
 	end
 	
