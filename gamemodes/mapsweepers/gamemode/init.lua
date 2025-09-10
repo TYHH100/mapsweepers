@@ -89,6 +89,7 @@ include "sh_statistics.lua"
 -- // NPC Includes {{{
 	do
 		include "npcs/sv_pathfinder.lua"
+		include "npcs/sv_pathfinder_nodegraph.lua"
 		include "npcs/sv_npcs.lua"
 		local npcFiles, _ = file.Find( "mapsweepers/gamemode/npcs/types/*.lua", "LUA")
 		for i, v in ipairs(npcFiles) do 
@@ -995,6 +996,18 @@ end
 			return true
 		end
 	end)
+
+	hook.Add("OnEntityCreated", "jcms_PreventBuggyAbuse", function(ent)
+		if ent:GetClass() == "prop_vehicle_jeep" then
+			ent:SetHitboxSet(1)
+			timer.Simple(0, function()
+				if IsValid(ent) then
+					ent:SetHitboxSet(1)
+					jcms.printf("Removed a buggy's ammo crate to prevent abuse")
+				end
+			end)
+		end
+	end)
 	
 	hook.Add("GetFallDamage", "jcms_FallDamage", function(ply, speed)
 		local dmg = math.min(speed / 24, ply:GetMaxHealth() * 0.75)
@@ -1349,7 +1362,7 @@ end
 					end
 				end
 			else
-				jcms.playerspawn_Debug(ply)
+				jcms.playerspawn_Error(ply)
 			end
 		end
 	end
@@ -1491,7 +1504,7 @@ end
 							ply:SetNWInt("jcms_cash", 500)
 						end
 					else
-						jcms.playerspawn_Debug(ply)
+						jcms.playerspawn_Error(ply)
 					end
 				end
 			end
@@ -1637,21 +1650,16 @@ end
 		jcms.npc_UpdateRelations(ply)
 	end
 	
-	function jcms.playerspawn_Debug(ply)
+	function jcms.playerspawn_Error(ply)
 		ply:UnSpectate()
-		ply:SetObserverMode(OBS_MODE_NONE)
+		ply:SetObserverMode(OBS_MODE_FIXED)
 		ply:UnLock()
 		ply:GodEnable()
 		
 		jcms.class_Apply(ply, "infantry")
 		ply:SetNWBool("jcms_flashlight", false)
 		
-		ply.jcms_canGetWeapons = true
-		ply:Give("weapon_stunstick")
-		ply:Give("weapon_physcannon")
-		ply.jcms_canGetWeapons = false
-		
-		ply:SetTeam(0)
+		ply:SetTeam(-256)
 		ply:SetupHands()
 		
 		ply:ChatPrint("[Map Sweepers] This map has no NavMesh!")
