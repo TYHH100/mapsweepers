@@ -64,6 +64,18 @@
 
 		return t
 	end
+	
+	function jcms.prefab_GetFactionTypesWithWeights(faction)
+		local t = {}
+
+		for name, data in pairs(jcms.prefabs) do
+			if data.faction == faction then
+				t[name] = data.weight or 1.0
+			end
+		end
+
+		return t
+	end
 
 	function jcms.prefab_GetWallSpotsFromArea(area, elevation, injectionDistance, subdivisionByUnits, conicDivergence, conicSubdivision)
 		local wallspots = {}
@@ -117,6 +129,7 @@
 		}
 
 		if not tr_Main.HitWorld then return false end
+		if bit.band( tr_Main.SurfaceFlags, SURF_TRANS ) > 0 then return false end
 		local normal = tr_Main.HitNormal
 		
 		local zThreshold = 0.2 -- walls cant be this tilted
@@ -139,6 +152,7 @@
 				}
 				
 				if not tr_Adj.HitWorld then return false end
+				if bit.band( tr_Adj.SurfaceFlags, SURF_TRANS ) > 0 then return false end
 				if not normalAngle:IsEqualTol( tr_Adj.HitNormal:Angle(), angleThreshold ) then return false end
 			end
 		end
@@ -148,20 +162,9 @@
 
 	function jcms.prefab_CheckOverlooking(area)
 		--Check function for prefabs meant to overlook large spaces. 
-
-		if ( area:GetSizeX()*area:GetSizeY() ) <= 60000 then
-			return false
-		end
-
-		if #area:GetVisibleAreas() < jcms.mapgen_GetVisData().avg then
-			return false
-		end
+		--This is a really janky way of doing this.
 
 		local c1, c2, c3, c4 = area:GetCorner(1), area:GetCorner(2), area:GetCorner(3), area:GetCorner(0)
-		if math.max(c1.z, c2.z, c3.z, c4.z) - math.min(c1.z, c2.z, c3.z, c4.z) > 34 then
-			return false
-		end
-
 		local corners = { c1, c2, c3, c4 }
 		local sideVisibilities = { 0, 0, 0, 0 }
 		local weighed = {}

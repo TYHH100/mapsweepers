@@ -130,11 +130,29 @@
 		-- // }}}
 	end
 
-	function jcms.npc_AntlionFodder_Think(npc)
-		if npc:GetInternalVariable("startburrowed") and npc.jcms_shouldUnburrow then 
-			npc:Fire("Unburrow")
+	function jcms.npc_SetupAntlionBurrowCheck(npc)
+		local npcTbl = npc:GetTable()
+		
+		npcTbl.jcms_lastBurrowCheck = CurTime()
+		local timerName = "jcms_antlion_unburrowThink_" .. tostring(npc:EntIndex())
+
+		local function npc_Antlion_BurrowCheck()			
+			if not IsValid(npc) then
+				timer.Remove(timerName)
+				return
+			end
+
+			local cTime = CurTime()
+			if npcTbl.jcms_shouldUnburrow and cTime - npcTbl.jcms_lastBurrowCheck > 10 and npc:GetInternalVariable("startburrowed") then 
+				npc:Fire("Unburrow")
+				npcTbl.jcms_lastBurrowCheck = cTime
+			end
 		end
 
+		timer.Create(timerName, 10, 6, npc_Antlion_BurrowCheck)
+	end
+
+	function jcms.npc_AntlionFodder_Think(npc)
 		local enemy = npc:GetEnemy()
 		if not IsValid(enemy) or not jcms.npc_NearThumper(enemy) then return end
 
@@ -162,14 +180,38 @@
 	--todo: Maybe playbackrate scaling could be used to scale up the threat of fodder lategame?
 -- // }}}
 
+-- // Sounds {{{
+	sound.Add( { --Literally just SolidMetal.BulletImpact with a higher soundLevel
+		name = "jcms_MetalImpact_Loud",
+		channel = CHAN_VOICE,
+		volume = 1.0,
+		level = 90,
+		pitch = 100,
+		sound = {
+			"physics/metal/metal_solid_impact_bullet1.wav",
+			"physics/metal/metal_solid_impact_bullet2.wav",
+			"physics/metal/metal_solid_impact_bullet3.wav",
+			"physics/metal/metal_solid_impact_bullet4.wav",
+		}
+	} )
+-- // }}}
+
+jcms.npc_commanders["antlion"] = {
+	placePrefabs = function(c, data)
+		--Faction prefabs
+		local count = math.ceil(jcms.mapgen_AdjustCountForMapSize( 4 ) * jcms.runprogress_GetDifficulty())
+		jcms.mapgen_PlaceFactionPrefabs(count, "antlion")
+	end
+}
+
 jcms.npc_types.antlion_worker = {
 	portalSpawnWeight = 0.25,
 	faction = "antlion",
 	
 	danger = jcms.NPC_DANGER_FODDER,
 	suppressSwarmPortalEffect = true,
-	cost = 0.9,
-	swarmWeight = 0.34,
+	cost = 1,
+	swarmWeight = 0.3,
 
 	class = "npc_antlion",
 	bounty = 50,
@@ -190,9 +232,12 @@ jcms.npc_types.antlion_worker = {
 		npc:SetSkin( math.random(0, npc:SkinCount() ))
 
 		if not jcms.HasEpisodes() then
-			npc:SetMaxHealth(60)
-			npc:SetHealth(60)
+			npc:SetMaxHealth(45)
+			npc:SetHealth(45)
 		end
+
+		jcms.npc_SetupAntlionBurrowCheck(npc)
+		npc.jcms_dmgMult = 0.73
 	end,
 
 	timerMin = 0.2,
@@ -211,10 +256,6 @@ jcms.npc_types.antlion_worker = {
 	end,
 	
 	think = function(npc, state)
-		if npc:GetInternalVariable("startburrowed") and npc.jcms_shouldUnburrow then 
-			npc:Fire("Unburrow")
-		end
-
 		if npc:GetCurrentSchedule() == SCHED_COMBAT_FACE then
 			npc:SetSchedule(SCHED_CHASE_ENEMY)
 		end
@@ -226,7 +267,7 @@ jcms.npc_types.antlion_drone = {
 	faction = "antlion",
 	
 	danger = jcms.NPC_DANGER_FODDER,
-	cost = 0.3,
+	cost = 0.4,
 	swarmWeight = 1,
 
 	class = "npc_antlion",
@@ -246,6 +287,7 @@ jcms.npc_types.antlion_drone = {
 	postSpawn = function(npc)
 		npc:SetSkin( math.random(0, npc:SkinCount() ))
 		npc.jcms_dmgMult = 3
+		jcms.npc_SetupAntlionBurrowCheck(npc)
 	end,
 
 	timerMin = 0.1,
@@ -254,7 +296,7 @@ jcms.npc_types.antlion_drone = {
 		if not npc.jcms_fromPortal then
 			npc:Fire "Unburrow"
 			npc.jcms_shouldUnburrow = true
-			
+
 			timer.Simple(60, function() --fall-back
 				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
 					npc:Remove()
@@ -270,7 +312,7 @@ jcms.npc_types.antlion_waster = {
 
 	danger = jcms.NPC_DANGER_FODDER,
 	suppressSwarmPortalEffect = true,
-	cost = 0.15,
+	cost = 0.2,
 	swarmWeight = 1.2,
 	
 	class = "npc_antlion",
@@ -293,7 +335,7 @@ jcms.npc_types.antlion_waster = {
 		npc:SetMaxHealth( npc:Health() / 2 )
 		npc:SetHealth( npc:GetMaxHealth() )
 
-		local timerName = "jcms_anltion_fastThink_" .. tostring(npc:EntIndex())
+		local timerName = "jcms_antlion_fastThink_" .. tostring(npc:EntIndex())
 		timer.Create(timerName, 0.05, 0, function() 
 			if not IsValid(npc) then 
 				timer.Remove(timerName)
@@ -308,6 +350,7 @@ jcms.npc_types.antlion_waster = {
 		end)
 
 		npc.jcms_dmgMult = 2
+		jcms.npc_SetupAntlionBurrowCheck(npc)
 	end,
 	
 	takeDamage = function(npc, dmg)
@@ -342,6 +385,8 @@ jcms.npc_types.antlion_guard = {
 	swarmWeight = 1,
 	swarmLimit = 3,
 	portalScale = 4,
+
+	hullSize = HULL_LARGE,
 	
 	preSpawn = function(npc)
 		if not npc.jcms_fromPortal then
@@ -355,11 +400,14 @@ jcms.npc_types.antlion_guard = {
 		--Will need to apply to all guards (default, cyber, ultracyber)
 		jcms.npc_GetRowdy(npc)
 		
-		local hp = math.ceil(npc:GetMaxHealth()*1.5)
+		local hp = math.ceil(npc:GetMaxHealth()*0.85)
 		npc:SetMaxHealth(hp)
 		npc:SetHealth(hp)
 		
 		npc:SetNWString("jcms_boss", "antlion_guard")
+		jcms.npc_SetupAntlionBurrowCheck(npc)
+
+		npc:SetBloodColor(DONT_BLEED)
 	end,
 
 	takeDamage = function(npc, dmg)
@@ -368,6 +416,39 @@ jcms.npc_types.antlion_guard = {
 				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
 			end
 		end)
+	end,
+	scaleDamage = function(npc, hitGroup, dmgInfo)
+		if bit.band(dmgInfo:GetDamageType(), bit.bor(DMG_BLAST,DMG_BLAST_SURFACE)) ~= 0 then return end
+		local inflictor = dmgInfo:GetInflictor() 
+		if not IsValid(inflictor) then return end 
+
+		local attkVec = npc:GetPos() - inflictor:GetPos()
+		local attkNorm = attkVec:GetNormalized()
+		local npcAng = npc:GetAngles():Forward()
+
+		local dot = attkNorm:Dot(-npcAng)
+		local angDiff = math.acos(dot)
+
+		local effectdata = EffectData()
+		effectdata:SetEntity(npc)
+		effectdata:SetOrigin(dmgInfo:GetDamagePosition() - attkNorm)
+		effectdata:SetStart(dmgInfo:GetDamagePosition() + attkNorm )
+		effectdata:SetSurfaceProp(2)
+		effectdata:SetDamageType(dmgInfo:GetDamageType())
+
+		if angDiff < math.pi/4 then --Heavy damage resist from the front, weak from behind.
+			npc:EmitSound("jcms_MetalImpact_Loud")
+
+			util.Effect("impact", effectdata)
+			effectdata:SetNormal(attkNorm)
+			util.Effect("MetalSpark", effectdata)
+
+			dmgInfo:ScaleDamage(0.25) --Slightly more forgiving than 0 damage.
+		else
+			effectdata:SetColor(1)
+			effectdata:SetScale(0.5)
+			util.Effect("BloodImpact", effectdata)
+		end
 	end,
 
 	timerMin = 0.1,
@@ -384,10 +465,274 @@ jcms.npc_types.antlion_guard = {
 			end)
 		end
 	end,
+	
+	check = function(director)
+		return jcms.npc_capCheck("npc_antlionguard", 12)
+	end
+}
 
-	think = function(npc) 
-		if npc:GetInternalVariable("startburrowed") and npc.jcms_shouldUnburrow then 
-			npc:Fire("Unburrow")
+jcms.npc_types.antlion_burrowerguard = {
+	faction = "antlion",
+	
+	class = "npc_antlionguard",
+	suppressSwarmPortalEffect = true,
+	bounty = 275,
+	
+	danger = jcms.NPC_DANGER_BOSS,
+	cost = 5,
+	swarmWeight = 1,
+	swarmLimit = 3,
+	portalScale = 4,
+
+	hullSize = HULL_MEDIUM_TALL,
+	
+	preSpawn = function(npc)
+		if not npc.jcms_fromPortal then
+			npc:SetKeyValue("startburrowed", "1")
+			npc:SetKeyValue("incavern", "1")
+			npc:SetKeyValue("cavernbreed", "1")
+		end
+	end,
+
+	postSpawn = function(npc)
+		--todo: Guards seem to like getting stuck in doorways/trying to nav to people they can't reach.
+		--It would be better if we detected that and made them hide or patrol instead.
+		--Will need to apply to all guards (default, cyber, ultracyber)
+		jcms.npc_GetRowdy(npc)
+		
+		local hp = math.ceil(npc:GetMaxHealth()*0.8)
+		npc:SetMaxHealth(hp)
+		npc:SetHealth(hp)
+		
+		npc:SetNWString("jcms_boss", "antlion_burrowerguard")
+		jcms.npc_SetupAntlionBurrowCheck(npc)
+
+		npc:SetModelScale(0.75, 0)
+		npc:SetHullType(HULL_MEDIUM_TALL)
+	end,
+
+	think = function(npc)
+		--If we can't reach an enemy, search for nodes near them that we can fit in and teleport/burrow there.
+
+		local enemy = npc:GetEnemy()
+		if IsValid(enemy) and npc:IsUnreachable(enemy) and not npc.jcms_burrowerGuard_isburrowing then
+			local nodes = jcms.pathfinder.ain_nodeSplat(enemy:WorldSpaceCenter(), 500, npc:GetHullType(), CAP_MOVE_GROUND)
+			table.Shuffle(nodes) 
+
+			for i, node in ipairs(nodes) do
+				local nodePos = ainReader.nodePositions[node] + jcms.vectorUp
+
+				local tr = util.TraceEntityHull({
+					start = nodePos,
+					endpos = nodePos,
+					mask = MASK_NPCSOLID
+				}, npc)
+
+				if not tr.Hit then --Put us in a free spot
+					npc.jcms_burrowerGuard_isburrowing = true
+
+					-- // Burrow Anim {{{
+						npc:SetSchedule(SCHED_RANGE_ATTACK1) --Would be better if we had no SFX from this
+
+						timer.Simple(0.4, function()
+							if not IsValid(npc) then return end
+
+							npc:EmitSound("npc/antlion/digdown1.wav", 90, 90 + math.Rand(-5, 5))
+							
+							local ed = EffectData()
+							ed:SetOrigin(npc:WorldSpaceCenter())
+							ed:SetScale(2.7 - 0.4) --Duration
+							ed:SetMagnitude(250) --Depth
+							ed:SetEntity(npc)
+							util.Effect("jcms_burrow", ed)
+						end)
+					-- // }}}
+					
+					-- // Unburrow
+						timer.Simple(2.7, function()
+							if not IsValid(npc) then return end
+
+							npc:SetPos(nodePos)
+							
+							npc:SetSaveValue("m_bIsBurrowed", true)
+							npc:Fire "Unburrow"
+
+							timer.Simple(3.5, function() 
+								npc.jcms_burrowerGuard_isburrowing = false
+							end)
+						end)
+					-- // }}}
+
+					break
+				end
+			end
+		end
+	end,
+
+	takeDamage = function(npc, dmg)
+		dmg:SetDamageType(bit.bor(dmg:GetDamageType(), DMG_ALWAYSGIB))
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+
+				if npc:Health() <= 0 then --Burst on death (Ragdolling doesn't work right due to our smaller size)
+					npc.jcms_burrowerguard_dead = true
+					timer.Simple(1.45, function() 	
+						if IsValid(npc) then	
+							EmitSound( "NPC_Antlion.PoisonBurstExplode", npc:WorldSpaceCenter() )
+						end
+					end)
+
+					timer.Simple(1.65, function()
+						if IsValid(npc) then
+							local pos = npc:WorldSpaceCenter()
+							
+							local ed = EffectData()
+							ed:SetOrigin(pos)
+							ed:SetRadius(50)
+							ed:SetNormal(vector_up)
+							ed:SetMagnitude(0.6)
+							ed:SetFlags(4)
+							util.Effect("jcms_blast", ed)
+
+							npc:Fire("Break")
+							ParticleEffect( "antlion_gib_02", pos, angle_zero )
+
+							npc:EmitSound("npc/antlion_grub/squashed.wav", 75, 80)
+						end
+					end)
+				end
+			end
+		end)
+	end,
+
+	timerMin = 0.1,
+	timerMax = 1.2,
+	timedEvent = function(npc) --Not replicated for cyberguards because they're teleported in by mafia.
+		if not npc.jcms_fromPortal then
+			npc:Fire "Unburrow"
+			npc.jcms_shouldUnburrow = true
+		end
+	end,
+	
+	check = function(director)
+		return jcms.npc_capCheck("npc_antlionguard", 12)
+	end
+}
+
+jcms.npc_types.antlion_mineralguard = {
+	faction = "antlion",
+	missionSpecific = "miningoperations",
+	
+	class = "npc_antlionguard",
+	suppressSwarmPortalEffect = true,
+	bounty = 150,
+	
+	danger = jcms.NPC_DANGER_BOSS,
+	cost = 5,
+	swarmWeight = 0.0000000001,
+	swarmLimit = 3,
+	portalScale = 3.8,
+
+	hullSize = HULL_LARGE,
+	
+	preSpawn = function(npc)
+		if not npc.jcms_fromPortal then
+			npc:SetKeyValue("startburrowed", "1")
+		end
+	end,
+
+	postSpawn = function(npc)
+		local hp = math.ceil(npc:GetMaxHealth()*1.25)
+		npc:SetMaxHealth(hp)
+		npc:SetHealth(hp)
+
+		jcms.npc_GetRowdy(npc)
+
+		if not npc.jcms_oreType then
+			local weights = {}
+			for name, oreData in pairs(jcms.oreTypes) do
+				weights[name] = oreData.weight or 1
+			end
+			
+			npc.jcms_oreType = jcms.util_ChooseByWeight(weights)
+		end
+
+		npc:SetMaterial(jcms.oreTypes[npc.jcms_oreType].material)
+		npc:SetNWString("jcms_boss", "antlion_guard")
+		jcms.npc_SetupAntlionBurrowCheck(npc)
+	end,
+
+	takeDamage = function(npc, dmg)
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				npc:SetNWFloat("HealthFraction", npc:Health() / npc:GetMaxHealth())
+			end
+		end)
+
+		local pos = dmg:GetDamagePosition()
+		local attacker = dmg:GetAttacker()
+		local damage = dmg:GetDamage()
+
+		local function spawnOre(isStunstick)
+			local chunk = ents.Create("jcms_orechunk")
+			chunk.jcms_miner = attacker
+			chunk:SetPos(pos)
+			chunk:SetAngles(AngleRand())
+			chunk:SetOreType(npc.jcms_oreType)
+			chunk:Spawn()
+
+			local phys = chunk:GetPhysicsObject()
+			phys:Wake()
+			phys:AddVelocity(VectorRand(-32, 32))
+			
+			if isStunstick then
+				npc:EmitSound("weapons/crowbar/crowbar_impact1.wav", 100, math.Rand(120, 125))
+			end
+
+			npc:EmitSound("Breakable.Concrete")
+
+			local ed = EffectData()
+			ed:SetOrigin(pos)
+			ed:SetColor(npc.jcms_oreColourInt or 0)
+			ed:SetRadius( math.Clamp(damage + 5, 10, 120) )
+
+			util.Effect("jcms_oremine", ed)
+		end
+
+
+		local inflictor = dmg:GetInflictor()
+		if (not npc.jcms_nextMine or CurTime() >= npc.jcms_nextMine) and IsValid(inflictor) and jcms.util_IsStunstick(inflictor) then
+			npc.jcms_nextMine = CurTime() + 0.32
+
+			spawnOre(true)
+		end
+
+		timer.Simple(0, function() 
+			if not(IsValid(npc) and npc:Health() <= 0) then return end 
+			if npc.jcms_mined then return end
+			npc.jcms_mined = true
+
+			for i=0, 9 do 
+				timer.Simple( i/20 + math.Rand(0, 0.1), function() 
+					spawnOre(false)
+				end)
+			end
+		end)
+	end,
+
+	timerMin = 0.1,
+	timerMax = 1.2,
+	timedEvent = function(npc)
+		if not npc.jcms_fromPortal then
+			npc:Fire "Unburrow"
+			npc.jcms_shouldUnburrow = true
+
+			timer.Simple(60, function() --fall-back
+				if IsValid(npc) and npc:GetInternalVariable("startburrowed") then 
+					npc:Remove()
+				end
+			end)
 		end
 	end,
 	
@@ -407,6 +752,8 @@ jcms.npc_types.antlion_cyberguard = {
 	swarmWeight = 0.8,
 	swarmLimit = 2,
 	portalScale = 3,
+
+	hullSize = HULL_LARGE,
 
 	preSpawn = function(npc)
 		npc:SetMaterial("models/jcms/cyberguard")
@@ -476,16 +823,18 @@ jcms.npc_types.antlion_ultracyberguard = {
 	swarmLimit = 1,
 	portalScale = 5,
 
+	hullSize = HULL_LARGE,
+
 	postSpawn = function(npc)
 		jcms.npc_GetRowdy(npc)
 		
-		local hp = math.ceil( npc:GetMaxHealth() * 1.25 )
+		local hp = math.ceil( npc:GetMaxHealth() * 1.5 )
 		npc:SetMaxHealth(hp)
 		npc:SetHealth(hp)
 		npc:SetModel("models/jcms/ultracyberguard.mdl")
 
 		npc.jcms_dmgMult = 0.75
-		npc.jcms_uCyberguard_nextBeam = CurTime() -- + 10
+		npc.jcms_uCyberguard_nextBeam = CurTime() + 10
 		npc.jcms_uCyberguard_stage2 = false
 
 		npc:SetNWString("jcms_boss", "antlion_ultracyberguard")
@@ -512,22 +861,91 @@ jcms.npc_types.antlion_ultracyberguard = {
 
 		-- // Laser Beams {{{
 			local enemy = npc:GetEnemy() 
-			if IsValid(enemy) and npc.jcms_uCyberguard_nextBeam < CurTime() then 
-				local ePos = npc:Visible(enemy) and enemy:WorldSpaceCenter() + enemy:GetVelocity()*0.5 or npc:GetEnemyLastSeenPos(enemy)
+			if IsValid(enemy) and npc.jcms_uCyberguard_nextBeam < CurTime() and enemy:WorldSpaceCenter():DistToSqr(npc:GetPos()) >150 then 
+				local ePos = npc:Visible(enemy) and enemy:EyePos() or npc:GetEnemyLastSeenPos(enemy)
 
-				local fromAngle = math.random()<0.5 and math.Rand(0, 0.15) or math.Rand(0.5, 0.8)
-				local toAngle = (math.random()<0.5 and 1 or -1) * 32
+				npc:SetSchedule(SCHED_RANGE_ATTACK1)
+				local attackType = (math.random() < (enemy:GetVelocity():Length() / 400)) and 1 or 2 --1 = Sweep, 2 = direct
+				--Sweeps are more likely if you're moving, direct attacks more likely for stationary/slow
+				
+				local beamPrep = 0.45
+				local beamLife = 3
+				local sweepVertically = math.Rand(0, 0.15)
+				local sweepDistance = (math.random()<0.5 and 1 or -1)*60 
+				local beamDPS = 40
+				local beamRadius = 5
 
-				for i=1, (npc.jcms_uCyberguard_stage2 and 2) or 1, 1 do 
-					toAngle = (i == 1 and toAngle) or -1 * toAngle
+				if attackType == 2 then 
+					beamPrep = 0.9
+					beamLife = 4
 
-					local beam = jcms.npc_AntlionBeamAttack(npc, ePos, 2000, fromAngle, toAngle, 4)
-					beam:SetPos(npc:GetBonePosition(2))
-					beam:AddEffects( EF_FOLLOWBONE )
-					beam:SetParent(npc, 1)
+					beamDPS = 80
+					beamRadius = 20
+
+					sweepVertically = 0 
+					sweepDistance = 0
 				end
+				local beamTotal = beamPrep + beamLife
+				
+				npc:SetPlaybackRate(0.85)
+				timer.Simple(0.9, function()
+					if not IsValid(npc) or not(npc:GetCurrentSchedule() == SCHED_RANGE_ATTACK1) then
+						return 
+					end 
+					npc:SetPlaybackRate(0.15)
 
-				npc.jcms_uCyberguard_nextBeam = CurTime() + ((npc.jcms_uCyberguard_stage2 and 3) or 5)
+					local boneId = 4 --Head
+					local matrix = npc:GetBoneMatrix(boneId)
+					local pos = matrix:GetTranslation()
+
+					local beam = ents.Create("jcms_deathray")
+					beam:SetPos(pos)
+					beam:SetAngles(npc:GetAngles())
+					beam.filter = npc
+					beam:Spawn()
+
+					beam:SetBeamColour(Vector(1, 0.6, 0.1))
+					beam:SetBeamRadius(beamRadius)
+					beam:SetBeamPrepTime(beamPrep)
+					beam:SetBeamLifeTime(beamLife)
+					beam:SetUseAngles(true)
+
+					beam.DPS = beamDPS
+					beam.DPS_DIRECT = beamDPS
+					beam.IgniteOnHit = false
+					beam.instantDamageImpulse = true
+
+					npc:SetMoveYawLocked( true )
+
+					local startAng, finishAng = jcms.beam_GetBeamAngles(pos, ePos + (enemy:GetVelocity() * (beamPrep + beamLife/3)), sweepVertically, sweepDistance)
+					local endTime = CurTime() + beamTotal
+					npc:IgnoreEnemyUntil( enemy, endTime )
+
+					--TODO: Recalculate finishAng when the beam actually starts
+
+					local timerName = "jcms_ultracyberguard_beamAim" .. tostring(npc:EntIndex())
+					timer.Create(timerName, 0.0, 0, function()
+						if not IsValid(npc) or not IsValid(beam) or not(npc:GetCurrentSchedule() == SCHED_RANGE_ATTACK1) then
+							timer.Remove(timerName)
+							if IsValid(npc) then
+								npc:SetPlaybackRate(1) 
+								npc:SetMoveYawLocked( false )
+							end 
+							if IsValid(beam) then beam:Remove() end
+							return
+						end
+
+						local frac = (endTime - CurTime())/beamTotal
+						
+						local mat = npc:GetBoneMatrix(boneId)
+						local pos = mat:GetTranslation()
+
+						beam:SetPos(pos)
+						beam:SetAngles(LerpAngle(frac, startAng, finishAng))
+					end)
+				end)
+
+				npc.jcms_uCyberguard_nextBeam = CurTime() + (npc.jcms_uCyberguard_stage2 and 8 or 15)
 			end
 		-- // }}}
 	end,
@@ -595,4 +1013,53 @@ jcms.npc_types.antlion_reaper = {
 		
 		npc.jcms_maxScaledDmg = 65
 	end
+}
+
+jcms.npc_types.antlion_grubbomb = {
+	faction = "antlion",
+
+	danger = jcms.NPC_DANGER_FODDER,
+	cost = 0.2,
+	swarmWeight = 0.0000001,
+
+	class = "npc_antlion_grub",
+	bounty = 15, --TODO: This is getting the inair bonus and it's fucking up its actual cost.
+
+	anonymous = true,
+	isStatic = true,
+
+	preSpawn  = function(npc)
+		jcms.mapgen_DropEntToNav(npc, npc:GetPos(), 800) --TODO: Maybe comment this out, I think this is only needed for debugspawn
+	end,
+	
+	postSpawn = function(npc)
+		--Technically unnecessary because anonymous already means we don't have director logic applied to us.
+		npc.jcms_ignoreStraggling = true
+	end,
+	
+	takeDamage = function(npc, dmg)
+		timer.Simple(0, function()
+			if IsValid(npc) and npc:Health() <= 0 then
+				local pos = npc:WorldSpaceCenter()
+
+				ParticleEffect( "antlion_gib_02", pos, angle_zero )
+				
+				EmitSound( "NPC_Antlion.PoisonBurstExplode", pos );
+				
+				local blstDmg = DamageInfo()
+
+				blstDmg:SetAttacker(npc)
+				blstDmg:SetInflictor(npc)
+				
+				blstDmg:SetDamage(50)
+				blstDmg:SetReportedPosition(pos)
+				blstDmg:SetDamageForce(jcms.vectorOrigin)
+				blstDmg:SetDamageType( bit.bor(DMG_POISON, DMG_BLAST_SURFACE, DMG_ACID) )
+
+				util.BlastDamageInfo(blstDmg, pos, 100)
+			end
+		end)
+	end,
+
+	check = function() return false end --Stop us from spawning naturally
 }

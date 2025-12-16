@@ -20,7 +20,7 @@
 --]]
 
 -- // Combine-Specific-Functions {{{
-	function jcms.npc_Gunship_Think_Rally(npc, bRad, bPrep, bLife, bDPS)
+	function jcms.npc_Gunship_Think_Rally(npc, bRad, bPrep, bLife, bDPS, bColour)
 		if npc.jcms_npcState == jcms.NPC_STATE_GUNSHIPRALLY then
 			--npc:SetSaveValue("m_flMaxSpeed", 700)
 			npc:EmitSound("npc/combine_gunship/see_enemy.wav", 140, 80, 1, CHAN_AUTO, 0, 38) --Roar / Announce
@@ -37,7 +37,7 @@
 			npc.deathRay.filter = npc --todo: We still seem to be killing ourselves sometimes somehow?
 			npc.deathRay:Spawn()
 
-			npc.deathRay:SetBeamIsBlue(true)
+			npc.deathRay:SetBeamColour(bColour or Vector(0, 1, 1))
 			npc.deathRay:SetBeamRadius(bRad)
 			npc.deathRay:SetBeamPrepTime(bPrep)
 			npc.deathRay:SetBeamLifeTime(bLife)
@@ -101,7 +101,7 @@
 		if npc.jcms_gunship_hits <= 0 and not npc.jcms_GunshipDead then 
 			npc.jcms_GunshipDead = true
 			npc:SetHealth(0)
-			hook.Call("OnNPCKilled", GAMEMODE, npc, dmg:GetAttacker(), dmg:GetInflictor())
+			--hook.Call("OnNPCKilled", GAMEMODE, npc, dmg:GetAttacker(), dmg:GetInflictor())
 		end
 
 		if not jcms.npc_gunship_onFire and npc.jcms_gunship_hits <= npc.jcms_gunship_maxHits/2 then 			
@@ -141,7 +141,13 @@
 	jcms.NPC_STATE_GUNSHIPCHARGE = 5
 -- // }}}
 
-
+jcms.npc_commanders["combine"] = {
+	placePrefabs = function(c, data)
+		--Faction prefabs
+		local count = math.ceil(jcms.mapgen_AdjustCountForMapSize( 2 ) * jcms.runprogress_GetDifficulty())
+		jcms.mapgen_PlaceFactionPrefabs(count, "combine")
+	end
+}
 
 jcms.npc_types.combine_scanner = {
 	faction = "combine",
@@ -201,6 +207,11 @@ jcms.npc_types.combine_soldier = {
 
 	postSpawn = function(npc)
 		npc:SetKeyValue("NumGrenades", "1")
+
+		local wep = npc:GetActiveWeapon()
+		if IsValid(wep) and wep:GetClass() == "weapon_smg1" then 
+			wep:SetSaveValue("m_fMaxRange1", 1000)
+		end
 	end,
 
 	proficiency = WEAPON_PROFICIENCY_VERY_GOOD
@@ -309,7 +320,9 @@ jcms.npc_types.combine_hunter = {
 	class = "npc_hunter",
 	bounty = 125,
 
-	proficiency = WEAPON_PROFICIENCY_VERY_GOOD
+	proficiency = WEAPON_PROFICIENCY_VERY_GOOD,
+
+	hullType = HULL_MEDIUM_TALL
 }
 
 jcms.npc_types.combine_gunship = {
@@ -337,7 +350,7 @@ jcms.npc_types.combine_gunship = {
 	think = function(npc, state) --Strafe w/ deathray occasionally
 		npc:SetSaveValue("m_vecDesiredPosition", npc:GetPos())
 
-		if jcms.npc_Gunship_Think_Rally(npc, 96, 1.5, 12, 120) then 
+		if jcms.npc_Gunship_Think_Rally(npc, 96, 1.5, 12, 120, Vector(0.1, 0.5, 1)) then 
 			npc:SetSaveValue("m_flMaxSpeed", 700)
 		elseif npc.jcms_npcState == jcms.NPC_STATE_GUNSHIPCHARGE then
 			npc:SetSaveValue("m_vecDesiredPosition", npc.jcms_gunshipMoveTarget)
@@ -431,7 +444,7 @@ jcms.npc_types.combine_cybergunship = {
 	think = function(npc, state) --Strafe w/ deathray occasionally
 		npc:SetSaveValue("m_vecDesiredPosition", npc:GetPos())
 
-		if jcms.npc_Gunship_Think_Rally(npc, 64, 1.5, 16, 120) then
+		if jcms.npc_Gunship_Think_Rally(npc, 64, 1.5, 16, 120, Vector(0.8, 0.5, 1)) then
 			if not npc.jcms_cybergunship_siren:IsPlaying() then 
 				npc.jcms_cybergunship_siren:PlayEx(0.75, 145)
 			end

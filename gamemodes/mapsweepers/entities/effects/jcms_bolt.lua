@@ -60,6 +60,7 @@ function EFFECT:Init( data )
 		-- Get random position in the sky above.
 		sound.Play("npc/strider/fire.wav", self.start, 150, 80, 1, 25)
 		self.delay = data:GetMagnitude()
+		self.pvpTeam = data:GetMaterialIndex()
 		self.t = -self.delay -- Delay
 		
 		local randomVisualSkyTrace = util.TraceLine {
@@ -79,6 +80,8 @@ function EFFECT:Init( data )
 	elseif self.type == 5 then
 		self.radius = data:GetMagnitude()
 		self.tout = 0.25 + math.sqrt(self.radius / 1200)
+	elseif self.type == 0 then
+		self.pvpTeam = data:GetMaterialIndex()
 	end
 
 	self.length = self.start:Distance(self.endpos)
@@ -100,7 +103,7 @@ function EFFECT:Think()
 				ed:SetOrigin(selfTbl.endpos)
 				ed:SetRadius(450)
 				ed:SetNormal(upVector)
-				ed:SetFlags(2)
+				ed:SetFlags(selfTbl.pvpTeam == 2 and 7 or 2)
 				util.Effect("jcms_blast", ed)
 				util.Effect("Explosion", ed)
 
@@ -123,10 +126,18 @@ function EFFECT:Render()
 	
 	local width = 24
 	if selfTbl.type == 0 then
-		-- Blue bolt
-		selfTbl.color.r = 64*ff
-		selfTbl.color.g = 255*ff
-		selfTbl.color.b = 255*(1-f)
+		-- Bolter Bolt
+		if self.pvpTeam == 2 then
+			-- Yellow
+			selfTbl.color.r = 255*(1-f)
+			selfTbl.color.g = 250*ff
+			selfTbl.color.b = 150*ff
+		else
+			-- Blue
+			selfTbl.color.r = 64*ff
+			selfTbl.color.g = 255*ff
+			selfTbl.color.b = 255*(1-f)
+		end
 		selfTbl.color.a = 256*ff
 		width = 32
 	elseif selfTbl.type == 4 then
@@ -159,15 +170,32 @@ function EFFECT:Render()
 
 		if f < 0 then
 			local invf = -selfTbl.t / selfTbl.delay
-			selfTbl.color.r = math.min(255, invf*255*2)
-			selfTbl.color.g = math.min(255, invf*invf*140*2)
-			selfTbl.color.b = math.min(255, invf*160*2)
+
+			if selfTbl.pvpTeam == 2 then
+				-- Yellow
+				selfTbl.color.r = math.min(255, invf*invf*255*2)
+				selfTbl.color.g = math.min(255, invf*180*2)
+				selfTbl.color.b = math.min(255, invf*100*2)
+			else
+				-- Red
+				selfTbl.color.r = math.min(255, invf*255*2)
+				selfTbl.color.g = math.min(255, invf*invf*140*2)
+				selfTbl.color.b = math.min(255, invf*invf*160*2)
+			end
 			selfTbl.color.a = invf*255
 			width = 32*invf
 		else
-			selfTbl.color.r = 255*(1-f)
-			selfTbl.color.g = 140*ff
-			selfTbl.color.b = 190*ff
+			if selfTbl.pvpTeam == 2 then
+				-- Yellow
+				selfTbl.color.r = 255*(1-f)
+				selfTbl.color.g = 255*ff
+				selfTbl.color.b = 100*ff
+			else
+				-- Red
+				selfTbl.color.r = 255*(1-f)
+				selfTbl.color.g = 140*ff
+				selfTbl.color.b = 190*ff
+			end
 			selfTbl.color.a = 256*ff
 			width = 500
 		end

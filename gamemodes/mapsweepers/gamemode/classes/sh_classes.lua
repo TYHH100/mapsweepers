@@ -32,7 +32,9 @@ table.Empty(jcms.classesOrderIndices)
 		ply:SetNWString("jcms_class", class)
 
 		-- Visual
-		ply:SetModel(data.mdl)
+		local pvpTeam = ply:GetNWInt("jcms_pvpTeam", -1)
+		ply:SetModel(data.mdls_pvp and data.mdls_pvp[ pvpTeam ] or data.mdl)
+
 		ply:SetSkin(data.skin or 0)
 		ply:SetPlayerColor(data.playerColorVector or Vector(0.44, 0, 0))
 
@@ -40,10 +42,8 @@ table.Empty(jcms.classesOrderIndices)
 		ply:SetLadderClimbSpeed(130 * data.speedMul)
 		ply:SetSlowWalkSpeed(75 * data.speedMul)
 		
-		data.walkSpeed = data.walkSpeed or (160 * data.speedMul)
-		data.runSpeed = data.runSpeed or (250 * data.speedMul)
-		ply:SetWalkSpeed(data.walkSpeed)
-		ply:SetRunSpeed(data.runSpeed)
+		ply:SetWalkSpeed( data.walkSpeed or (160 * data.speedMul) )
+		ply:SetRunSpeed( data.runSpeed or (250 * data.speedMul) )
 
 		ply:SetJumpPower( data.jumpPower or 200 )
 		ply:SetCrouchedWalkSpeed(0.5)

@@ -26,6 +26,12 @@ jcms.inTutorial = game.GetMap() == "jcms_tutorial"
 jcms.vectorOrigin = Vector(0, 0, 0)
 jcms.vectorUp = Vector(0, 0, 1)
 jcms.vectorOne = Vector(1, 1, 1)
+jcms.vectorInvalid = Vector(math.huge, math.huge, math.huge)
+
+
+local pmt = FindMetaTable("Player")
+local emt = FindMetaTable("Entity")
+local nmt = FindMetaTable("NPC")
 
 -- Generic {{{
 
@@ -62,7 +68,6 @@ jcms.vectorOne = Vector(1, 1, 1)
 -- }}}
 
 -- // Compatibility {{{
-	local pmt = FindMetaTable("Player")
 	pmt.CheckLimit = function() return true end --This function only exists in sandbox, but some addons assume it exists always.
 -- // }}
 
@@ -126,13 +131,35 @@ jcms.vectorOne = Vector(1, 1, 1)
 	jcms.cvar_npcteam_restrict = CreateConVar("jcms_npcteam_restrict", "0", FCVAR_JCMS_SHARED_SAVED, "Restrictions on NPC Team. 0 = no restrictions, 1 = can only join as NPC post-evac, 2 = can never join as NPCs", 0, 2)
 	jcms.cvar_suddendeathtimer = CreateConVar("jcms_suddendeathtimer", "0", FCVAR_JCMS_SHARED_SAVED, "(If set above 0) This is the number of seconds that must pass since the first sweeper evacuates, until J Corp stops giving credits for kills to remaining sweepers, encouraging evacuation. If set to 0, people can take their time with EVAC as long as they want with no penalties.", 0, 600)
 
+	jcms.cvar_damage_mul = CreateConVar("jcms_damage_mul", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Damage multiplier to Sweepers done by NPCs.", 0, 5)
+
 	jcms.cvar_swarm_frequency = CreateConVar("jcms_swarm_frequency", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Swarm frequency multiplier.", 0, 5)
 	jcms.cvar_swarm_size = CreateConVar("jcms_swarm_size", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Swarm size multiplier.", 0, 5)
 	jcms.cvar_swarm_warning = CreateConVar("jcms_swarm_warning", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Extra seconds between a portal opening and enemies coming out of it.", 0, 30)
 	
+	jcms.cvar_pvpallowed = CreateConVar("jcms_pvpallowed", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Dictates how PVP mode works. 0=Disable PVP; 1=Vote-based; 2=PVP Only")
+	jcms.cvar_pvpminplayers = CreateConVar("jcms_pvpminplayers", "2", FCVAR_JCMS_NOTIFY_AND_SAVE, "Minimum players to be present on the server before PVP voting can begin")
+	jcms.cvar_pvpautobalance = CreateConVar("jcms_pvpautobalance", game.IsDedicated() and "1" or "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "0=No autobalancing; 1=Restrict joining to the smallest team; 2=Randomize teams before the round")
+	jcms.cvar_pvpdebug = CreateConVar("jcms_pvpdebug", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "Stops PVP mode from ending when only 1 team is present")
+	jcms.cvar_pvprespawnmode = CreateConVar("jcms_pvprespawnmode", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "0=Team-wide, 1=Per-Player")
+
+	jcms.cvar_performanceMode = CreateConVar("jcms_performancemode", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "Various more aggressive changes to improve performance")
+	
 	-- Replicated
 	jcms.cvar_announcer_type = CreateConVar("jcms_announcer_type", "default", FCVAR_JCMS_SHARED_SAVED, "Selects the current announcer by name.")
 	jcms.cvar_noepisodes = CreateConVar("jcms_noepisodes", "0", FCVAR_JCMS_SHARED_SAVED, "If set to 1, Half-Life 2: Episode One & Two content will never appear in-game. Useful if you don't want your poor friends to see errors.")
+
+	if SERVER then
+		cvars.AddChangeCallback("jcms_pvpallowed", function(cvar, oldValue, newValue)
+			local isPVP = jcms.util_IsPVP()
+			newValue = tonumber(newValue)
+			if isPVP and newValue == 0 then
+				jcms.pvp_SetEnabled(false)
+			elseif not isPVP and newValue == 2 then
+				jcms.pvp_SetEnabled(true)
+			end
+		end)
+	end
 
 -- // }}}
 
@@ -146,29 +173,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 	hook.Add("InitPostEntity", "jcms_matOverride", function()
 		Material("models/humans/male/group03/citizen_sheet"):SetTexture("$basetexture", "models/jcms/rgg_male")
 		Material("models/humans/female/group03/citizen_sheet"):SetTexture("$basetexture", "models/jcms/rgg_female")
-
-		for classname, data in pairs(jcms.classes) do
-			if data.matOverrides then
-				for matname, newtexture in pairs(data.matOverrides) do
-					local mat = Material(matname)
-					mat:SetTexture("$basetexture", newtexture)
-
-					if newtexture:find("glow") then
-						local flags = mat:GetInt("$flags")
-						local newFlags = bit.bor(64, 128, 16384)
-						mat:SetInt("$flags", newFlags)
-
-						mat:SetInt("$translucent", 0)
-						mat:SetInt("$nocull", 0)
-						mat:SetUndefined("$envmap")
-						mat:SetUndefined("$detail")
-						mat:SetUndefined("$envmapmask")
-						mat:SetUndefined("$translucent")
-						mat:Recompute()
-					end
-				end
-			end
-		end
+		Material("models/antlion_grub/antlion_grub"):SetTexture("$basetexture", "models/jcms/antlion_bombgrub")
 	end)
 
 -- }}}
@@ -183,7 +188,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_stunstick",
 			PrintName = "#weapon_stunstick",
 			WorldModel = "models/weapons/c_stunstick.mdl",
-			Primary = { Ammo = false, Damage = 40, RPM = 60, ClipSize = -1, Cone = 0 }
+			Primary = { Ammo = false, Damage = 47, RPM = 60, ClipSize = -1, Cone = 0 }
 		},
 
 		weapon_physcannon = {
@@ -201,7 +206,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_pistol",
 			PrintName = "#weapon_pistol",
 			WorldModel = "models/weapons/w_pistol.mdl",
-			Primary = { Ammo = "Pistol", Damage = 5, RPM = 550, ClipSize = 18, Cone = math.rad(0.8) }
+			Primary = { Ammo = "Pistol", Damage = 11, RPM = 550, ClipSize = 18, Cone = math.rad(0.8) }
 		},
 
 		weapon_smg1 = {
@@ -210,7 +215,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_smg1",
 			PrintName = "#weapon_smg1",
 			WorldModel = "models/weapons/w_smg1.mdl",
-			Primary = { Ammo = "SMG1", Damage = 4, RPM = 800, ClipSize = 45, Cone = math.rad(1.5) }
+			Primary = { Ammo = "SMG1", Damage = 9, RPM = 800, ClipSize = 45, Cone = math.rad(1.5) }
 		},
 
 		weapon_357 = {
@@ -219,7 +224,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_357",
 			PrintName = "#weapon_357",
 			WorldModel = "models/weapons/w_357.mdl",
-			Primary = { Ammo = "357", Damage = 40, RPM = 80, ClipSize = 6, Cone = 0 }
+			Primary = { Ammo = "357", Damage = 93, RPM = 80, ClipSize = 6, Cone = 0 }
 		},
 
 		weapon_ar2 = {
@@ -228,7 +233,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_ar2",
 			PrintName = "#weapon_ar2",
 			WorldModel = "models/weapons/w_irifle.mdl",
-			Primary = { Ammo = "AR2", Damage = 8, RPM = 600, ClipSize = 30, Cone = math.rad(0.8) }
+			Primary = { Ammo = "AR2", Damage = 18, RPM = 600, ClipSize = 30, Cone = math.rad(0.8) }
 		},
 
 		weapon_shotgun = {
@@ -237,7 +242,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_shotgun",
 			PrintName = "#weapon_shotgun",
 			WorldModel = "models/weapons/w_shotgun.mdl",
-			Primary = { Ammo = "Buckshot", Damage = 8, RPM = 80, ClipSize = 6, Cone = math.rad(2.5), NumShots = 7 }
+			Primary = { Ammo = "Buckshot", Damage = 23, RPM = 80, ClipSize = 6, Cone = math.rad(2.5), NumShots = 7 }
 		},
 
 		weapon_rpg = {
@@ -246,7 +251,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_rpg",
 			PrintName = "#weapon_rpg",
 			WorldModel = "models/weapons/w_rocket_launcher.mdl",
-			Primary = { Ammo = "RPG_Round", Damage = 200, RPM = 34, ClipSize = 1, Cone = 0 }
+			Primary = { Ammo = "RPG_Round", Damage = 265, RPM = 34, ClipSize = 1, Cone = 0 }
 		},
 
 		weapon_frag = {
@@ -264,7 +269,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 			ClassName = "weapon_crossbow",
 			PrintName = "#weapon_crossbow",
 			WorldModel = "models/weapons/w_crossbow.mdl",
-			Primary = { Ammo = "XBowBolt", Damage = 100, RPM = 31, ClipSize = 1, Cone = 0 }
+			Primary = { Ammo = "XBowBolt", Damage = 187, RPM = 31, ClipSize = 1, Cone = 0 }
 		}
 
 		--HL1 Weapons
@@ -295,28 +300,28 @@ jcms.vectorOne = Vector(1, 1, 1)
 		["ar2altfire"] = 64,
 		["pistol"] = 1,
 		["smg1"] = 2,
-		["357"] = 7,
-		["xbowbolt"] = 10,
+		["357"] = 6,
+		["xbowbolt"] = 8,
 		["buckshot"] = 6,
-		["rpg_round"] = 80,
+		["rpg_round"] = 70,
 		["smg1_grenade"] = 65,
 		["grenade"] = 47,
 		["slam"] = 55,
 		["alyxgun"] = 1.6,
-		["sniperround"] = 17,
-		["sniperpenetratedround"] = 22,
+		["sniperround"] = 15,
+		["sniperpenetratedround"] = 18,
 		["thumper"] = 15,
 		["gravity"] = 12,
 		["battery"] = 8,
 		["gaussenergy"] = 13,
-		["combinecannon"] = 28,
+		["combinecannon"] = 26,
 		["airboatgun"] = 18,
 		["striderminigun"] = 7.3,
 		["helicoptergun"] = 6.6,
 		["9mmround"] = 1.2,
 		["357round"] = 7.2,
 		["buckshothl1"] = 4.2,
-		["xbowbolthl1"] = 26,
+		["xbowbolthl1"] = 20,
 		["mp5_grenade"] = 55,
 		["rpg_rocket"] = 69,
 		["uranium"] = 14,
@@ -439,7 +444,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 		local gunData = weapons.Get(class) or jcms.default_weapons_datas[class]
 		if not gunData then return end
 		if not gunData.Primary then
-			ErrorNoHaltWithStack( "Weapon set up incorrectly: " .. class .. "from the base" .. gunData.Base .. " go bother the dev to fix it" )
+			ErrorNoHalt("Weapon set up incorrectly: '" .. class .. "' from the base '" .. tostring(gunData.Base) .. "' go bother the weapon's dev to fix it")
 			return
 		end
 
@@ -477,7 +482,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 				stats.automatic = gunData.Primary.Automatic
 				stats.accuracy = gunData.SciFiACC or 0
 				radAccuracy = false
-			elseif gunData.Primary.RPM and gunData.Primary.Recoil and gunData.Primary.Spread then
+			elseif gunData.Primary.RPM and (gunData.Primary.Recoil or gunData.RecoilAmount) and (gunData.Primary.Spread or gunData.Primary.SpreadHip) then
 				-- M9K or TFA
 				stats.base = gunData.IsTFAWeapon and "TFA" or "M9K"
 
@@ -491,7 +496,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 				stats.damage = gunData.Primary.Damage or 0
 				stats.firerate = 60 / (tonumber(gunData.Primary.RPM) or 1)
 				stats.automatic = gunData.Primary.Automatic
-				stats.accuracy = gunData.Primary.Spread or 0
+				stats.accuracy = gunData.Primary.Spread or gunData.Primary.SpreadHip or 0
 				radAccuracy = true
 			elseif gunData.ArcCW then
 				-- ArcCW
@@ -664,29 +669,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 			if SERVER and gunData.ViewModel and gunData.ViewModel ~= "" then
 				--Note: This function gets called in render hooks, so we either need to cache this or only have the data serverside.
-				local dummyEnt
-				--if SERVER then
-					dummyEnt = ents.Create("prop_physics")
-					--[[
-				else
-					dummyEnt = ents.CreateClientProp( "prop_physics" )
-				end
-				--]]
-
-				dummyEnt:SetModel(gunData.ViewModel)
-				local seqId = dummyEnt:SelectWeightedSequenceSeeded( ACT_VM_RELOAD, 0 ) --If anyone's given their weapons randomised reload speeds they're bastards. - J
-				if seqId < 0 then
-					for i, sqname in ipairs(dummyEnt:GetSequenceList()) do
-						if sqname:lower():find("reload") == 1 then
-							seqId = i
-							break
-						end
-					end
-				end
-
-				local dur = dummyEnt:SequenceDuration(seqId)
-				dummyEnt:Remove()
-
+				local dur = jcms.gunstats_GetReloadTime( gunData.ViewModel )
 				stats.reloadtime = dur
 			else
 				stats.reloadtime = 0
@@ -720,7 +703,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 	if CLIENT then
 		function jcms.gunstats_GetMat(class)
 			if not jcms.gunMats[ class ] then
-				wepstats = jcms.gunstats_GetExpensive(class)
+				local wepstats = jcms.gunstats_GetExpensive(class)
 
 				jcms.gunMats[class] = Material(wepstats and wepstats.icon or "vgui/entities/"..class..".png")
 				if jcms.gunMats[class]:IsError() then
@@ -730,6 +713,25 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 			return jcms.gunMats[ class ]
 		end
+	end
+
+	function jcms.gunstats_GetReloadTime( viewModelName )
+		local viewModelEnt = ents.Create("prop_physics")
+		viewModelEnt:SetModel(viewModelName)
+
+		local seqId = viewModelEnt:SelectWeightedSequenceSeeded( ACT_VM_RELOAD, 0 ) --If anyone's given their weapons randomised reload speeds they're bastards. - J
+		if seqId < 0 then
+			for i, sqname in ipairs(viewModelEnt:GetSequenceList()) do
+				if sqname:lower():find("reload") == 1 then
+					seqId = i
+					break
+				end
+			end
+		end
+
+		local dur = viewModelEnt:SequenceDuration(seqId)
+		viewModelEnt:Remove()
+		return dur
 	end
 
 	function jcms.gunstats_CountGivenAmmoFromLoadoutCount(stats, count) -- How much ammo is given for a weapon bought X times.
@@ -821,6 +823,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 	jcms.team_jCorpClasses = jcms.team_jCorpClasses or {
 		["jcms_turret"] = true,
 		["jcms_turret_smrls"] = true,
+		["jcms_landmine"] = true,
 		["jcms_sapper"] = true
 	}
 
@@ -899,9 +902,30 @@ jcms.vectorOne = Vector(1, 1, 1)
 		return npcCheck or playerCheck or nextbotCheck or entClassCheck --NOTE: Could be optimised more by turning it into a single massive boolean expression, but idk if that's worth it.
 	end
 
+	function jcms.team_pvpSameTeam(e1, e2) --Shared pvp Team?
+		local e1Pvp = e1:GetNWInt("jcms_pvpTeam", -1)
+		local e2Pvp = e2:GetNWInt("jcms_pvpTeam", -1)
+		return e1Pvp == -1 or e2Pvp == -1 or e1Pvp == e2Pvp --If either lacks pvp or both on same team
+	end
+
+	function jcms.team_pvpSameTeam_Strict(e1, e2) --Shared pvp team, team -1 is hostile (to self & others)
+		local e1Pvp = e1:GetNWInt("jcms_pvpTeam", -1)
+		local e2Pvp = e2:GetNWInt("jcms_pvpTeam", -1)
+		return e1Pvp == e2Pvp and not (e1Pvp == -1 or e2Pvp == -1)
+	end
+	
+	function jcms.team_pvpSameTeam_optimised(e1Pvp, e2Pvp)
+		return e1Pvp == -1 or e2Pvp == -1 or e1Pvp == e2Pvp --If either lacks pvp or both on same team
+	end
+
+	function jcms.team_pvpSameTeam_Strict_optimised(e1Pvp, e2Pvp)
+		return e1Pvp == e2Pvp and not (e1Pvp == -1 or e2Pvp == -1)
+	end
+
+
 	function jcms.team_SameTeam(e1, e2)
 		if (e1 == e2) or ( jcms.team_JCorp(e1) and jcms.team_JCorp(e2) ) then
-			return true
+			return jcms.team_pvpSameTeam(e1, e2)
 		else
 			local bothNPCs = jcms.team_NPC(e1) and jcms.team_NPC(e2)
 
@@ -920,7 +944,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 					end
 				end
 			else
-				return false
+				return jcms.team_pvpSameTeam_Strict(e1, e2) --Friendly if both have a pvp team and both are the same team, hostile otherwise.
 			end
 		end
 	end
@@ -937,7 +961,7 @@ jcms.vectorOne = Vector(1, 1, 1)
 		local players = team.GetPlayers(1)
 		for i=#players, 1, -1 do
 			local ply = players[i]
-			if not(IsValid(ply) and ply:Alive() and ply:GetObserverMode() == OBS_MODE_NONE) then
+			if not(IsValid(ply) and pmt.Alive(ply) and pmt.GetObserverMode(ply) == OBS_MODE_NONE) then
 				table.remove(players, i)
 			end
 		end
@@ -957,11 +981,74 @@ jcms.vectorOne = Vector(1, 1, 1)
 		return players
 	end
 
+	function jcms.PVPGetTeamPlayers( pvpTeam )
+		local plys = {}
+		for i, ply in player.Iterator() do
+			if jcms.team_pvpSameTeam_optimised(pvpTeam, ply:GetNWInt("jcms_pvpTeam", -1)) then
+				table.insert(plys, ply) 
+			end
+		end
+		return plys
+	end
+
+	function jcms.PVPGetTeamAlivePlayers( pvpTeam ) 
+		local plys = jcms.GetAliveSweepers()
+		for i=#plys, 1, -1 do 
+			local ply = plys[i] 
+			if not jcms.team_pvpSameTeam_optimised(pvpTeam, ply:GetNWInt("jcms_pvpTeam", -1)) then
+				table.remove(plys, i)
+			end
+		end
+
+		return plys
+	end
+
 	jcms.cvar_noepisodes = GetConVar("jcms_noepisodes")
 	function jcms.HasEpisodes()
 		return not jcms.cvar_noepisodes:GetBool()
 	end
 -- }}}
+
+-- // PVP & Vote {{{
+
+	jcms.pvp_vote = jcms.pvp_vote or {
+		endsAt = 0,
+		yes = {},
+		no = {},
+		any = {}
+	}
+
+	function jcms.pvp_vote_IsOngoing()
+		return jcms.pvp_vote and CurTime() < jcms.pvp_vote.endsAt
+	end
+
+	function jcms.pvp_vote_InsertPlayerByOption(ply, option)
+		local vote = jcms.pvp_vote
+
+		local tables = {
+			vote.yes,
+			vote.no,
+			vote.any
+		}
+
+		local oc1, oc2, oc3 = #tables[1], #tables[2], #tables[3]
+
+		for i, tab in ipairs(tables) do
+			local k = table.RemoveByValue(tab, ply)
+		end
+
+		local tab = tables[option + 1]
+		
+		if tab then
+			table.insert(tab, ply)
+		end
+
+		local nc1, nc2, nc3 = #tables[1], #tables[2], #tables[3]
+
+		return nc1 ~= oc1 or nc2 ~= oc2 or nc3 ~= oc3
+	end
+
+-- // }}}
 
 -- Util {{{
 
@@ -1041,11 +1128,10 @@ jcms.vectorOne = Vector(1, 1, 1)
 
 	function jcms.util_GetSky(from)
 		local lastpos = from
-		local up = Vector(0, 0, 20000)
-		local normalup = Vector(0, 0, 1)
+		local up = Vector(0, 0, 32768)
 
 		for i=1, 48 do
-			local trace = util.TraceLine { start = lastpos + normalup, endpos = lastpos + up, mask = MASK_SOLID_BRUSHONLY }
+			local trace = util.TraceLine { start = lastpos + jcms.vectorUp, endpos = lastpos + up, mask = MASK_SOLID_BRUSHONLY }
 
 			if trace.HitSky then
 				return trace.HitPos, i == 1
@@ -1181,10 +1267,66 @@ jcms.vectorOne = Vector(1, 1, 1)
 		return r * (8/7) * 32, g * (8/7) * 32, b * (4/3) * 64
 	end
 
+	function jcms.util_GetColorIntegerPvP(ent)
+		if IsValid(ent) and ent:GetNWInt("jcms_pvpTeam", -1) == 2 then
+			return jcms.util_colorIntegerMafia
+		else
+			return jcms.util_colorIntegerJCorp
+		end
+	end
+
+	function jcms.pvp_IsGoodTeamId(teamId)
+		return teamId == 1 or teamId == 2
+	end
+
+	function jcms.util_GetFactionNameFromTeamId(id)
+		if id == 2 then
+			return "mafia"
+		else
+			return "jcorp"
+		end
+	end
+
+	function jcms.util_GetFactionNamePVP(ent)
+		local id = IsValid(ent) and ent:GetNWInt("jcms_pvpTeam", -1) or 1
+		return jcms.util_GetFactionNameFromTeamId(id)
+	end
+
+	function jcms.util_GetPVPVectorColor(ent)
+		if IsValid(ent) and ent:GetNWInt("jcms_pvpTeam", -1) == 2 then
+			return Vector(1, 0.8, 0)
+		else
+			return Vector(1, 0, 0)
+		end
+	end
+
+	function jcms.util_GetPVPColorScoreboard(teamId, bright)
+		if teamId == 2 then
+			return Color(255, 233, 107, bright and 255 or 16)
+		else
+			return Color(255, 63, 63, bright and 255 or 16)
+		end
+	end
+
+	function jcms.util_GetPVPColor(ent)
+		if IsValid(ent) and ent:GetNWInt("jcms_pvpTeam", -1) == 2 then
+			return Color(255, 217, 0)
+		else
+			return Color(255, 0, 0)
+		end
+	end
+
+	function jcms.util_TryUpdateForPVP(ent)
+		if IsValid(ent) and ent.UpdateForFaction then
+			ent:UpdateForFaction( jcms.util_GetFactionNamePVP(ent) )
+		end
+	end
+
 	jcms.util_colorIntegerJCorp = jcms.util_ColorInteger( Color(255, 0, 0) )
+	jcms.util_colorIntegerMafia = jcms.util_ColorInteger( Color(255, 217, 0) )
 	jcms.util_colorIntegerSweeperShield = jcms.util_ColorInteger( Color(32, 200, 255) )
 
-	jcms.util_dmgTypesCompression = { DMG_ACID, DMG_FALL, DMG_DROWN, DMG_NERVEGAS, DMG_RADIATION, DMG_BURN }
+	jcms.util_dmgTypesCompression = { DMG_ACID, DMG_FALL, DMG_DROWN, DMG_NERVEGAS, DMG_RADIATION, DMG_BURN, DMG_POISON }
 	function jcms.util_dmgTypeCompress(dmgType)
 		local compressed = 0
 		for i, n in ipairs(jcms.util_dmgTypesCompression) do
@@ -1282,8 +1424,9 @@ jcms.vectorOne = Vector(1, 1, 1)
 		return game.GetWorld():GetNWBool("jcms_ongoing", false)
 	end
 
-	function jcms.util_GetRespawnCount()
-		return game.GetWorld():GetNWInt("jcms_respawncount", 0)
+	function jcms.util_GetRespawnCount(teamId, ply)
+		local count = game.GetWorld():GetNWInt("jcms_respawncount_" .. tostring(not(teamId==-1) and teamId or 1), 0)
+		return count + (IsValid(ply) and ply:GetNWInt("jcms_playerRespawns", 0) or 0)
 	end
 
 	function jcms.util_GetMissionType()
@@ -1294,14 +1437,65 @@ jcms.vectorOne = Vector(1, 1, 1)
 		return game.GetWorld():GetNWString("jcms_missionfaction", "antlion")
 	end
 
-	function jcms.util_GetCurrentWinstreak()
+	function jcms.util_GetCurrentWinstreak() --NOTE: Only the *displayed* winstreak is returned by this, not stored. I.e. currently it's always 0 in pvp
 		return game.GetWorld():GetNWInt("jcms_winstreak", 0)
 	end
 
-	function jcms.util_GetCurrentDifficulty()
+	function jcms.util_GetCurrentDifficulty() --NOTE: Ditto
 		return game.GetWorld():GetNWFloat("jcms_difficulty", 0)
 	end
 
+	function jcms.util_IsPVP()
+		return game.GetWorld():GetNWBool("jcms_pvpmode", false)
+	end
+
+	function jcms.util_IsPVPAllowed()
+		return (jcms.cvar_pvpallowed:GetInt() ~= 0) and (player.GetCount() >= jcms.cvar_pvpminplayers:GetInt())
+	end
+
+	function jcms.util_AddAngles(ang1, ang2) --TODO: Not super efficient as it creates 2 matrix objects.
+		local mat = Matrix()
+		mat:SetAngles(ang1)
+		
+		local mat2 = Matrix()
+		mat2:SetAngles(ang2)
+
+		mat:Mul(mat2)
+		return mat:GetAngles()
+	end
+
+	function jcms.util_GetLargestPvpTeamCount()
+		local teamCounts = {}
+
+		for i, ply in player.Iterator() do
+			local teamId = ply:GetNWInt("jcms_pvpTeam", -1)
+			teamCounts[teamId] = (teamCounts[teamId] or 0) + 1
+		end
+
+		local largest = 0
+		for teamId, count in pairs(teamCounts) do 
+			largest = math.max(count, largest)
+		end
+
+		return largest
+	end
+
+	
+	function jcms.util_GetLargestAlivePvpTeamCount()
+		local teamCounts = {}
+
+		for i, ply in ipairs(jcms.GetAliveSweepers()) do
+			local teamId = ply:GetNWInt("jcms_pvpTeam", -1)
+			teamCounts[teamId] = (teamCounts[teamId] or 0) + 1
+		end
+
+		local largest = 0
+		for teamId, count in pairs(teamCounts) do 
+			largest = math.max(count, largest)
+		end
+
+		return largest
+	end
 -- }}}
 
 -- Licenses {{{

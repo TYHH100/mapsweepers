@@ -29,6 +29,7 @@ ENT.Spawnable = false
 ENT.RenderGroup = RENDERGROUP_BOTH
 
 ENT.SentinelAnchor = true
+ENT.JCMS_Stunnable = true
 
 if SERVER then
 	function jcms.turret_GetTargetPos(self, target, origin)
@@ -43,19 +44,23 @@ if SERVER then
 	end
 	
 	function jcms.turret_IsDifferentTeam(self, ent)
+		return not jcms.team_SameTeam(self, ent)
+		--[[
 		if self:GetHackedByRebels() then
 			return jcms.team_JCorp(ent) and not(ent.GetHackedByRebels and ent:GetHackedByRebels())
 		else
 			return jcms.team_NPC(ent)
-		end
+		end--]]
 	end
 
-	function jcms.turret_IsDifferentTeam_Optimised(isHacked, ent)
+	function jcms.turret_IsDifferentTeam_Optimised(isHacked, ent, pvpTeam)
 		if isHacked then 
 			local entTbl = ent:GetTable()
+
 			return jcms.team_JCorp(ent) and not(entTbl.GetHackedByRebels and entTbl:GetHackedByRebels())
 		else
-			return jcms.team_NPC_optimised(ent)
+			local entPvpTeam = ent:GetNWInt("jcms_pvpTeam", -1)
+			return (jcms.team_NPC_optimised(ent) and not jcms.team_pvpSameTeam_Strict_optimised(pvpTeam, entPvpTeam)) or not jcms.team_pvpSameTeam_optimised(pvpTeam, entPvpTeam)
 		end
 	end
 	
@@ -119,15 +124,17 @@ if SERVER then
 		
 		bolter = {
 			damage = 60,
-			firerate = 1,
+			firerate = 1.1,
 			damagetype = DMG_BULLET + DMG_ALWAYSGIB,
 			muzzleflashScale = 2,
+			pvpMuzzleflashFlags = { [2] = 2 },
 			muzzleflashFlag = 4,
 			clip = 100,
 			
 			radius = 2600,
 			tracer = "jcms_bolt",
 			tracerFlag = 0,
+			tracerUsesPVPTeam = true,
 			hiteffect = "AR2Impact",
 			
 			timeAlert = 1,
@@ -147,9 +154,18 @@ if SERVER then
 			sound = "Airboat.FireGunHeavy",
 			soundEmpty = "Weapon_AR2.Empty",
 			
+			postSpawn = function(turret)
+				if jcms.util_IsPVP() then
+					turret:SetSniperGlare(true)
+				end
+			end,
+
 			boosted = { --engineer.
 				postSpawn = function(turret)
 					jcms.npc_SetupSweeperShields(turret, 35, 10, 5, Color(255, 0, 0))
+					if jcms.util_IsPVP() then
+						turret:SetSniperGlare(true)
+					end
 				end
 			}
 		},
@@ -163,7 +179,7 @@ if SERVER then
 			muzzleflashFlag = 2,
 			clip = 100,
 			
-			radius = 900,
+			radius = 750,
 			tracer = "jcms_laser",
 
 			updateRate = 5, --How often do we try to acquire targets (optimisation)
@@ -185,6 +201,7 @@ if SERVER then
 			
 			boosted = { --engineer.
 				tracerFlag = 1,
+				spreadX = 9,
 
 				OnHit = function(turret, target, dmgInfo, tr)
 					if not jcms.team_JCorp(target) then 
@@ -214,13 +231,13 @@ if SERVER then
 
 			updateRate = 3, --How often do we try to acquire targets (optimisation)
 			
-			turnSpeedYaw = 45,
-			turnSpeedPitch = 14,
+			turnSpeedYaw = 48,
+			turnSpeedPitch = 16,
 			pitchLockMin = -66,
 			pitchLockMax = 66,
 			
-			spreadX = 2.8,
-			spreadY = 2.2,
+			spreadX = 2.4,
+			spreadY = 2.0,
 			targetingMode = "closestangle",
 			
 			sound = "Weapon_SMG1.NPC_Single",
@@ -371,7 +388,6 @@ if CLIENT then
 end
 
 function ENT:Initialize()
-	
 	if SERVER then
 		local health = 125
 		self:SetHealth(health)
@@ -389,10 +405,8 @@ function ENT:Initialize()
 		self:AddCallback("PhysicsCollide", self.PhysicsCollide)
 		self:GetPhysicsObject():Wake()
 		self:SetUseType(SIMPLE_USE)
-	end
-	
-	if CLIENT then
-		self.muzzleMatrix = Matrix()
+
+		self.jcms_stunEnd = CurTime()
 	end
 	
 	self.turretAngle = Angle(0, 0, 0)
@@ -408,8 +422,10 @@ function ENT:SetupDataTables()
 	self:NetworkVar("String", 0, "TurretKind")
 	self:NetworkVar("Bool", 0, "TurretBoosted")
 	self:NetworkVar("Bool", 1, "HackedByRebels")
+	self:NetworkVar("Bool", 2, "SniperGlare")
 	self:NetworkVar("Vector", 0, "TurretTurnSpeed")
 	self:NetworkVar("Vector", 1, "TurretPitchLock")
+	self:NetworkVar("Vector", 2, "GlareColour")
 	
 	if SERVER then
 		self:SetTurretDesiredAngle( Angle(0, 0, 0) )
@@ -417,18 +433,33 @@ function ENT:SetupDataTables()
 		self:SetTurretClip(self:GetTurretMaxClip())
 		self:SetTurretKind("smg")
 		self:SetTurretHealthFraction(1)
+		self:SetGlareColour(Vector(255, 60, 60))
 	end
 
 	self:NetworkVarNotify("HackedByRebels", function(ent, name, old, new )
 		if new ~= old then 
-			local isRebel = new
-
-			for i, matname in ipairs(ent:GetMaterials()) do
-				ent:SetSubMaterial(i-1, isRebel and matname:gsub("jcorp_", "rgg_") or "")
+			self:UpdateForFaction(new and "rgg" or jcms.util_GetFactionNamePVP(ent))
+			if new then 
+				self:SetSniperGlare(true)
+			elseif not jcms.util_IsPVP() then 
+				self:SetSniperGlare(false)
 			end
 		end
 	end)
-	--:SetSubMaterial(0, "models/jcms/rgg_turret")
+end
+
+function ENT:UpdateForFaction(faction)
+	for i, matname in ipairs(self:GetMaterials()) do
+		self:SetSubMaterial(i-1, matname:gsub("jcorp_", tostring(faction) .. "_"))
+	end
+
+	if faction == "rgg" then 
+		self:SetGlareColour(Vector(162, 81, 255))
+	elseif faction == "mafia" then 
+		self:SetGlareColour(Vector(241, 212, 14))
+	else
+		self:SetGlareColour(Vector(255, 60, 60))
+	end
 end
 
 function ENT:SetupBoosted() --For engineer
@@ -573,10 +604,11 @@ if SERVER then
 		--Below is at least 50% of the cost of turrets.
 
 		local isHacked = selfTbl:GetHackedByRebels()
+		local selfPvpTeam = self:GetNWInt("jcms_pvpTeam", -1)
 		local entIndices = {}
 		for _, ent in ipairs(ents.FindInSphere(origin, radius)) do 
 			--if ent ~= self and ent:Health() > 0 then
-			if jcms.team_GoodTarget(ent) and jcms.turret_IsDifferentTeam_Optimised(isHacked, ent) and self:TurretVisible(ent) then
+			if jcms.team_GoodTarget(ent) and jcms.turret_IsDifferentTeam_Optimised(isHacked, ent, selfPvpTeam) and (self:TurretVisible(ent) or (IsValid(ent:GetNWEntity("jcms_vehicle", NULL)) and self:TurretVisible(ent:GetNWEntity("jcms_vehicle", NULL)))) then
 				table.insert(selfTbl.targetsCache, ent)
 				entIndices[ent] = ent:EntIndex()
 			end
@@ -624,6 +656,10 @@ if SERVER then
 
 	function ENT:TurretThink(delta) 
 		local selfTbl = self:GetTable()
+		if selfTbl.jcms_stunEnd > CurTime() then
+			--TODO: Aim down & Make a looping idle noise
+			return 
+		end
 
 		selfTbl.TurretSlowThink(self)
 		local best = selfTbl.CurrentTarget 
@@ -667,12 +703,17 @@ if SERVER then
 		tr.Angle = tr.Normal:Angle()
 
 		local tracerEffect, hitEffect, tracerFlag = data.tracer, data.hiteffect, data.tracerFlag or 0
+		local tracerUsesPVPTeam = data.tracerUsesPVPTeam
+
 		local effectdata = EffectData()
 		effectdata:SetStart(LerpVector(7/tr.StartPos:Distance(tr.HitPos), tr.StartPos, tr.HitPos))
 		effectdata:SetScale(math.random(6500, 9000))
 		effectdata:SetAngles(tr.Angle)
 		effectdata:SetOrigin(tr.HitPos)
 		effectdata:SetFlags(tracerFlag)
+		if tracerUsesPVPTeam then
+			effectdata:SetMaterialIndex(math.max(0, self:GetNWInt("jcms_pvpTeam", -1)))
+		end
 		util.Effect(tracerEffect, effectdata)
 		
 		if hitEffect then
@@ -731,7 +772,7 @@ if SERVER then
 		if selfTbl.GetTurretClip(self) > 0 then
 			local myangle = self:GetAngles()
 			local up, right, fwd = myangle:Up(), myangle:Right(), myangle:Forward()
-			local mypos = selfTbl.GetTurretShootPos(self)
+			local mypos = selfTbl.GetTurretShootPos(self) --glare
 			
 			for i=1, pellets do
 				local dir = selfTbl.turretAngle + myangle
@@ -759,7 +800,11 @@ if SERVER then
 			local effectdata3 = EffectData()
 			effectdata3:SetEntity(self)
 			effectdata3:SetScale(data.muzzleflashScale or 1)
-			effectdata3:SetFlags(data.muzzleflashFlag or 1)
+			if data.pvpMuzzleflashFlags then
+				effectdata3:SetFlags(data.pvpMuzzleflashFlags[self:GetNWInt("jcms_pvpTeam", -1)] or data.muzzleflashFlag or 1)
+			else
+				effectdata3:SetFlags(data.muzzleflashFlag or 1)
+			end
 			util.Effect("jcms_muzzleflash", effectdata3)
 			
 			self:SetTurretClip( self:GetTurretClip() - 1 )
@@ -875,8 +920,7 @@ if SERVER then
 			local inflictor, attacker = dmg:GetInflictor(), dmg:GetAttacker()
 			if IsValid(inflictor) and jcms.util_IsStunstick(inflictor) and jcms.team_JCorp(attacker) then --Repairs
 				if self:GetHackedByRebels() then 
-					jcms.util_UnHack(self)
-					self.jcms_owner = (IsValid(self.jcms_owner) and self.jcms_owner:IsPlayer() and self.jcms_owner) or attacker
+					jcms.util_UnHack(self, attacker)
 				end
 
 				jcms.util_PerformRepairs(self, attacker)
@@ -911,8 +955,8 @@ if SERVER then
 					self:EmitSound("npc/scanner/scanner_pain"..math.random(1,2)..".wav")
 				end
 				
-				if bit.band(dmgtype, bit.bor(DMG_ACID, DMG_SHOCK)) > 0 then
-					dmg:ScaleDamage(1.5)
+				if bit.band(dmgtype, DMG_ACID) > 0 then
+					dmg:ScaleDamage(1.25)
 				elseif bit.band(dmgtype, bit.bor(DMG_NERVEGAS, DMG_SLOWBURN, DMG_DROWN)) > 0 then
 					dmg:ScaleDamage(0)
 				else
@@ -978,7 +1022,6 @@ if CLIENT then
 	function ENT:Think()
 		local selfTbl = self:GetTable()
 		local frameTime = FrameTime()
-		local myang = self:GetAngles()
 		local ang = selfTbl.turretAngle or Angle(0,0,0) --self:TurretAngle()
 
 		self:ManipulateBoneAngles(1, Angle(ang.y,0,0))
@@ -1030,9 +1073,51 @@ if CLIENT then
 		end
 	end
 	
+	local spriteMat = Material("particle/fire")
+	local spriteMat2 = Material("particle/Particle_Glow_04")
+	local beamCol = Color(120, 255, 255, 50)
 	function ENT:DrawTranslucent()
-		if self:GetHackedByRebels() then
+		local selfTbl = self:GetTable()
+		if selfTbl:GetHackedByRebels() then
 			jcms.render_HackedByRebels(self)
+		end
+
+		if selfTbl:GetSniperGlare() then 
+			local shootPos = selfTbl.GetTurretShootPos(self)
+			
+			local ang = self:GetAngles()
+			ang:Add(selfTbl.turretAngle)
+			local normal = ang:Forward()
+			
+			shootPos:Add(normal * 7.5)
+			shootPos:Add(ang:Right() * -1)
+			shootPos:Add(ang:Up() * 1.6)
+
+			local glarePos =  shootPos + normal * 25
+
+			local dif = EyePos()
+			dif:Sub(shootPos)
+			local dist = dif:Length()
+			dif:Normalize()
+
+			local dot = math.Clamp((dif:Dot(normal)-0.4)/0.6, 0, 1)^4 
+			local scale = (dist - 350) / 1000
+			local superDot = math.Remap(dot, 0.6, 1, 0, 1)
+			if dot > 0.01 and scale > 0 then
+				local r,g,b = self:GetGlareColour():Unpack()
+				beamCol:SetUnpacked(r,g,b, 255)
+
+				render.OverrideBlend(true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD)
+					render.SetMaterial(spriteMat)
+					render.DrawSprite(glarePos, Lerp(dot, 0, 256)*scale, Lerp(dot^2, 0, 64)*scale, beamCol)
+					
+					render.SetMaterial(spriteMat2)
+					if superDot > 0 then
+						render.DrawQuadEasy(glarePos, normal, math.Rand(32, 48)*scale*superDot*superDot, math.Rand(2, 10)*scale*superDot, beamCol, math.cos(CurTime())*48)
+						render.DrawQuadEasy(glarePos, normal, math.Rand(48, 64)*scale*superDot*superDot, math.Rand(3, 12)*scale*superDot, beamCol, math.sin(CurTime())*32)
+					end
+				render.OverrideBlend(false)
+			end
 		end
 	end
 	
@@ -1064,7 +1149,8 @@ if CLIENT then
 			local f = 1 - clip / maxClip
 			local x, y, w, h, p = -276, 0, 530, 170, 16
 			
-			local r, g, b = 255, 0, 0
+
+			local r, g, b = jcms.device_GetColor("bright1", self:GetNWInt("jcms_pvpTeam", -1)):Unpack()
 			if selfTbl:GetHackedByRebels() then 
 				r, g, b = 162, 81, 255
 			end

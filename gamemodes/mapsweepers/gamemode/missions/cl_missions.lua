@@ -31,9 +31,19 @@
 			tags = { "hacking" }
 		},
 
+		miningoperations = {
+			faction = "antlion",
+			tags = { "extraorders" }
+		},
+
 		thumpersabotage = {
 			faction = "combine",
 			tags = { "infighting", "extraorders" }
+		},
+
+		datadownload = {
+			faction = "combine",
+			tags = {}
 		},
 
 		mainframe = {
@@ -60,6 +70,22 @@
 			faction = "any",
 			tags = { "hacking" }
 		}
+	}
+
+	-- A lot of people tend to report issues with custom-made missions to Octantis Addons.
+	-- We created this list to mark a mission as "official". Missions added by extensions
+	-- get a special tag that lets people know that they are fanmade, so that issues are reported
+	-- directly to extension dev rather than Octantis Addons. This happened way too many times.
+	jcms.missions_official = {
+		["thumperreactivation"] = true,
+		["violenceflashpoints"] = true,
+		["miningoperations"] = true,
+		["thumpersabotage"] = true,
+		["datadownload"] = true,
+		["infestation"] = true,
+		["mainframe"] = true,
+		["payload"] = true,
+		["hell"] = true
 	}
 
 -- // }}}

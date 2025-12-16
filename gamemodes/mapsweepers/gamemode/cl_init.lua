@@ -19,29 +19,29 @@
 	Contact E-Mail: merekidorian@gmail.com
 --]]
 
-include "sh_debugtools.lua"
+include "_main/sh_debugtools.lua"
 
-include "sh_bspReader.lua" --Not sure if we even need this data on client. Will include data read-ins if/when necessary. - J
+include "_main/sh_bspReader.lua" --Not sure if we even need this data on client. Will include data read-ins if/when necessary. - J
 
 include "shared.lua"
-include "sh_net.lua"
-include "cl_hud.lua"
-include "cl_hud_npc.lua"
-include "sh_controls.lua"
-include "cl_flashlights.lua"
-include "cl_terminal.lua"
-include "cl_objectives.lua"
-include "cl_spawnmenu.lua"
-include "cl_offgame.lua"
-include "cl_paint.lua"
+include "_main/sh_net.lua"
+include "_main/client/ui/cl_hud.lua"
+include "_main/client/ui/cl_hud_npc.lua"
+include "_main/sh_controls.lua"
+include "_main/client/cl_flashlights.lua"
+include "_main/client/cl_terminal.lua"
+include "_main/client/ui/cl_objectives.lua"
+include "_main/client/ui/cl_spawnmenu.lua"
+include "_main/client/ui/cl_offgame.lua"
+include "_main/client/ui/cl_paint.lua"
 include "missions/cl_missions.lua"
-include "sh_announcer.lua"
-include "sh_hints.lua"
-include "sh_factions.lua"
-include "sh_statistics.lua"
-include "cl_codex.lua"
+include "_main/sh_announcer.lua"
+include "_main/sh_hints.lua"
+include "_main/sh_factions.lua"
+include "_main/sh_statistics.lua"
+include "_main/client/cl_codex.lua"
 include "npcs/cl_bestiary.lua"
-include "cl_addoncompatibility.lua"
+include "_main/client/cl_addoncompatibility.lua"
 
 -- // Class Includes {{{
 	do
@@ -70,7 +70,7 @@ include "cl_addoncompatibility.lua"
 
 
 if jcms.inTutorial then
-	include "cl_tutorial.lua"
+	include "_main/client/cl_tutorial.lua"
 end 
 
 --Optimisation. Getting locPly from a lua table is cheaper than the function.
@@ -210,9 +210,9 @@ end)
 		["8d992bb020d23a76fb969bc6e93f29cab939c751d2c2637555cb2c87f6233b79"] = "rgg", -- Dullfifqariano, RGG enforcer
 		
 		-- Mafia Members
-		["4f92d868130e272c86a99ad26e3a4f0d920ad58d069aa59ee1b7d98568553a9f"] = "mafia", -- baggie, mafia boss
+		["48f04893f12ffdd62342de3f63664b0c5ac941d0852c61f787c3e1ae3e2e1051"] = "mafia", -- Xelerax, mafia boss
 		["53d0a5fcc6f87fb7449cad422a48196a2c85261598b84354cacea2317077ceb5"] = "mafia", -- Firch, mafia caporegime
-		["48f04893f12ffdd62342de3f63664b0c5ac941d0852c61f787c3e1ae3e2e1051"] = "mafia", -- Xelerax, mafia caporegime
+		["4f92d868130e272c86a99ad26e3a4f0d920ad58d069aa59ee1b7d98568553a9f"] = "mafia", -- baggie, mafia soldato
 		["101449ca879207d041035e8a7c8d07db99dd16aa37626b1a66799084d6ea5594"] = "mafia", -- LeSeiL, mafia soldato
 		["adbdc18a436c3d1a1f2544a98351eef55212800855a2d3e0795c2a7d116936c5"] = "mafia"  -- Beaver Eater, mafia soldato
 	}
@@ -226,13 +226,14 @@ end)
 	jcms.cvar_announcer = CreateClientConVar("jcms_announcer", "1", true, false, "If set to 1, JonahSoldier will watch over your progress with mission control voicelines.")
 	jcms.cvar_nomusic = CreateClientConVar("jcms_nomusic", "0", true, false, "Disables mission-start HL2 ambience at the start of each mission")
 
+	jcms.cvar_hud_pvptheme = CreateClientConVar("jcms_hud_pvptheme", "1", true, false, "Override the HUD colour theme specifically in PVP to match your side")
 	jcms.cvar_hud_scale = CreateClientConVar("jcms_hud_scale", "1", true, false, "Scale multiplier for the in-game HUD")
 	jcms.cvar_hud_novignette = CreateClientConVar("jcms_hud_novignette", "0", true, false, "Disables the darkening around corners of the screen")
 	jcms.cvar_hud_nocolourfilter = CreateClientConVar("jcms_hud_nocolourfilter", "0", true, false, "Disables the colour-modifying screen tint")
 	jcms.cvar_hud_noneardeathfilter = CreateClientConVar("jcms_hud_noneardeathfilter", "0", true, false, "Disables the near-death black-and-white effect")
 
 	jcms.cvar_crosshair_style = CreateClientConVar("jcms_crosshair_style", "1", true, false, "0: None\n1: T-shaped\n2: Triangle\n3: Plus-shaped\n4: Circle")
-	jcms.cvar_crosshair_dot = CreateClientConVar("jcms_crosshair_dot", "0", true, false, "Enables the central dot on the crosshair. 0=Never, 1=Always, 2=Only when zoomed in")
+	jcms.cvar_crosshair_dot = CreateClientConVar("jcms_crosshair_dot", "0", true, false, "Enables the central dot on the crosshair. 0=Never, 1=Always, 2=Only when zoomed in, 3=Hide when zoomed in")
 	jcms.cvar_crosshair_ammo = CreateClientConVar("jcms_crosshair_ammo", "1", true, false, "0: No ammo indicator\n1: Temporary circular\n2: Permanent circular\n3: Temporary numeric\n4: Permanent numeric")
 
 	jcms.cvar_crosshair_width = CreateClientConVar("jcms_crosshair_width", "1", true, false, "Thickness of the crosshair lines")
@@ -240,6 +241,18 @@ end)
 	jcms.cvar_crosshair_gap = CreateClientConVar("jcms_crosshair_gap", "0", true, false, "Added gap to the crosshair (there's a default one of ~8)")
 
 	jcms.cvar_favclass = CreateClientConVar("jcms_favclass", "", true, false, "Will automatically select this class whenever you join a game")
+
+	cvars.AddChangeCallback("jcms_hud_pvptheme", function(cvar, oldValue, newValue)
+		if tobool(newValue) then
+			local pvpId = jcms.locPly:GetNWInt("jcms_pvpTeam", -1)
+
+			if jcms.pvp_IsGoodTeamId(pvpId) then
+				jcms.hud_SetThemeWithoutSaving( jcms.util_GetFactionNameFromTeamId(pvpId) )
+			end
+		else
+			jcms.hud_SetThemeWithoutSaving( nil )
+		end
+	end)
 
 -- // }}}
 
@@ -329,6 +342,7 @@ end)
 
 		jcms.cachedValues.motionSickness = jcms.cvar_motionsickness:GetBool()
 		jcms.cachedValues.hudScale = jcms.cvar_hud_scale:GetFloat()
+		jcms.cachedValues.noVignette = jcms.cvar_hud_novignette:GetBool()
 	-- // }}}
 
 	hook.Add("Think", "jcms_cachevalues", function()
@@ -360,6 +374,7 @@ end)
 
 		jcms.cachedValues.motionSickness = jcms.cvar_motionsickness:GetBool()
 		jcms.cachedValues.hudScale = jcms.cvar_hud_scale:GetFloat()
+		jcms.cachedValues.noVignette = jcms.cvar_hud_novignette:GetBool()
 
 		jcms.scrW = ScrW()
 		jcms.scrH = ScrH()
@@ -622,7 +637,7 @@ end)
 			end
 		end
 
-		for i, ent in ipairs( player.GetAll() ) do
+		for i, ent in player.Iterator() do
 			if IsValid(ent) and not emt.GetNoDraw(ent) and not emt.IsDormant(ent) and ent:GetObserverMode() == OBS_MODE_NONE then
 				drawBulletShield(ent, i)
 			else
@@ -919,12 +934,12 @@ end)
 		["$alphatest"] = 1
 	} )
 
-	function jcms.render_HackedByRebels(ent)
+	function jcms.render_HackedByRebels(ent, sizeOverride, widthOverride, colorOverride, matOverride)
 		local entPos = ent:GetPos()
 		local eyeDist = jcms.EyePos_lowAccuracy:Distance(entPos)
 		if eyeDist > 4500 then return end
 		
-		render.SetMaterial(jcms.render_rebelHackBeamMat)
+		render.SetMaterial(matOverride or jcms.render_rebelHackBeamMat)
 		local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
 		local minsX, minsY, minsZ = mins:Unpack()
 		local maxsX, maxsY, maxsZ = maxs:Unpack()
@@ -942,7 +957,7 @@ end)
 		
 			local n = math.random(4, 6)
 			render.StartBeam(n)
-			local size = math.Rand(4, 16) * (beamReduction/3 + 1)
+			local size = (sizeOverride or math.Rand(4, 16)) * (beamReduction/3 + 1)
 			for j=1, n do
 				gi = gi +1
 				local f = math.Remap(j, 1, n, 0, 1)
@@ -952,7 +967,7 @@ end)
 				norm:Mul(sin)
 				v:Add(right)
 				v:Add(norm)
-				render.AddBeam(v, 24/i, f*0.6+0.2, cols[gi % #cols + 1] )
+				render.AddBeam(v, (widthOverride or 24)/i, f*0.6+0.2, colorOverride or cols[gi % #cols + 1])
 				v:Sub(norm)
 				v:Sub(right)
 				norm:Div(sin)
@@ -1020,6 +1035,114 @@ end)
 
 	jcms.colormod_death = 0
 
+	jcms.colormod_list_oneshots = {}
+	jcms.colormod_dict_named = {}
+	jcms.colormod_calculated = { r = 0, g = 0, b = 0, intensity = 0 }
+
+	function jcms.colormod_Add(color, intensity, delay, inDur, holdDur, outDur)
+		table.insert(jcms.colormod_list_oneshots, {
+			t = -(delay or 0),
+			inDur = inDur or 1,
+			holdDur = holdDur or 1,
+			outDur = outDur or 1,
+			color = color,
+			intensity = intensity or 1
+		})
+	end
+
+	function jcms.colormod_Hold(id, color, intensity, inDur, outDur)
+		local existingData = jcms.colormod_dict_named[ id ]
+		if not existingData then
+			existingData = { holdingPower = 0, holdingThisTick = true }
+			jcms.colormod_dict_named[ id ] = existingData
+		end
+
+		existingData.color = color
+		existingData.intensity = intensity
+		existingData.holdingThisTick = true
+		existingData.inDur = inDur or 1
+		existingData.outDur = outDur or 1
+	end
+	
+	function jcms.colormod_CalcIntensity(colormodInfo)
+		local intensity = colormodInfo.intensity
+
+		if colormodInfo.holdingPower then
+			return colormodInfo.holdingPower * intensity
+		end
+
+		local t = colormodInfo.t
+		if t < 0 then return 0 end
+		
+		local inDur = colormodInfo.inDur
+		local holdDur = colormodInfo.holdDur
+		local outDur = colormodInfo.outDur
+
+		return math.Clamp(math.min(
+			t / inDur,
+			(t - inDur - holdDur - outDur) / (-outDur)
+		), 0, 1)*intensity
+	end
+
+	hook.Add("Think", "jcms_colormodThink", function()
+		local totalCount = 0
+		local totalIntensity = 0
+		local avg_r, avg_g, avg_b = 0, 0, 0
+		local dt = FrameTime()
+
+		for name, colormodInfo in pairs(jcms.colormod_dict_named) do
+			local intensity = jcms.colormod_CalcIntensity(colormodInfo)
+
+			totalCount = totalCount + 1
+			totalIntensity = totalIntensity + intensity
+
+			local r,g,b = colormodInfo.color:Unpack()
+			avg_r, avg_g, avg_b = avg_r + r*intensity, avg_g + g*intensity, avg_b + b*intensity
+
+			if colormodInfo.holdingThisTick then
+				colormodInfo.holdingThisTick = false
+				colormodInfo.holdingPower = math.min(colormodInfo.holdingPower + dt/colormodInfo.inDur, 1)
+			else
+				if colormodInfo.holdingPower == 0 then
+					jcms.colormod_dict_named[name] =  nil
+				else
+					colormodInfo.holdingPower = math.max(0, colormodInfo.holdingPower - dt/colormodInfo.outDur)
+				end
+			end
+		end
+
+		for i=#jcms.colormod_list_oneshots, 1, -1 do
+			local colormodInfo = jcms.colormod_list_oneshots[ i ]
+
+			if colormodInfo.t > (colormodInfo.inDur + colormodInfo.holdDur + colormodInfo.outDur) then
+				table.remove(jcms.colormod_list_oneshots, i)
+			else
+				colormodInfo.t = colormodInfo.t + dt
+
+				local intensity = jcms.colormod_CalcIntensity(colormodInfo)
+
+				totalCount = totalCount + 1
+				totalIntensity = totalIntensity + intensity
+
+				local r,g,b = colormodInfo.color:Unpack()
+				avg_r, avg_g, avg_b = avg_r + r*intensity, avg_g + g*intensity, avg_b + b*intensity
+			end
+		end
+
+		local calc = jcms.colormod_calculated
+		if totalIntensity == 0 then
+			calc.r = 0
+			calc.g = 0
+			calc.b = 0
+			calc.intensity = 0
+		else
+			calc.r = avg_r / totalIntensity
+			calc.g = avg_g / totalIntensity
+			calc.b = avg_b / totalIntensity
+			calc.intensity = math.min(totalIntensity, math.sqrt(totalIntensity))
+		end
+	end)
+
 	hook.Add("RenderScreenspaceEffects", "jcms_jvision", function()
 		local colourmod = not jcms.cvar_hud_nocolourfilter:GetBool()
 		local deathmod = not jcms.cvar_hud_noneardeathfilter:GetBool()
@@ -1035,29 +1158,26 @@ end)
 			else
 				local color = jcms.color_bright
 				local avg = (color.r + color.g + color.b) / 3
+				local calc = jcms.colormod_calculated
 
 				local addFactor, mulFactor = (math.sin(cTime) + 1)/2 * 0.03 + 0.08, (math.cos(cTime) + 1)/2 * 0.05
 				
-				local blind = 0
-				local red = math.Clamp(jcms.hud_blindingRedLight or 0, -1, 1)
-				if red > 0 then
-					jcms.hud_blindingRedLight = math.max(0, red - FrameTime())
-					blind = math.ease.InCubic(red)
-				elseif red < 0 then
-					jcms.hud_blindingRedLight = math.min(0, red + FrameTime())
-					blind = -math.ease.InCubic(-red)
-				end
-				
-				jcms.colormod["$pp_colour_addr"] = (color.r - avg) / 255 * addFactor
-				jcms.colormod["$pp_colour_addg"] = (color.g - avg) / 255 * addFactor - blind*0.3
-				jcms.colormod["$pp_colour_addb"] = (color.b - avg) / 255 * addFactor - blind*0.3
+				local blind = calc.intensity
+				local brightness = (calc.r + calc.g + calc.b) / 3 / 255
+				local n_r = calc.r*blind/255
+				local n_g = calc.g*blind/255
+				local n_b = calc.b*blind/255
 
-				jcms.colormod["$pp_colour_mulr"] = (color.r - avg) / 255 * mulFactor
-				jcms.colormod["$pp_colour_mulg"] = (color.g - avg) / 255 * mulFactor
-				jcms.colormod["$pp_colour_mulb"] = (color.b - avg) / 255 * mulFactor
+				jcms.colormod["$pp_colour_addr"] = (color.r - avg) / 255 * addFactor + n_r
+				jcms.colormod["$pp_colour_addg"] = (color.g - avg) / 255 * addFactor + n_g
+				jcms.colormod["$pp_colour_addb"] = (color.b - avg) / 255 * addFactor + n_b
+
+				jcms.colormod["$pp_colour_mulr"] = (color.r - avg) / 255 * mulFactor - n_g/3 - n_b/3
+				jcms.colormod["$pp_colour_mulg"] = (color.g - avg) / 255 * mulFactor - n_r/3 - n_b/3
+				jcms.colormod["$pp_colour_mulb"] = (color.b - avg) / 255 * mulFactor - n_r/3 - n_g/3
 				
-				jcms.colormod["$pp_colour_contrast"] = Lerp(blind^2, 1.06, math.Rand(2.7, 3.06))
-				jcms.colormod["$pp_colour_brightness"] = Lerp(blind^2, 0.025, -math.Rand(0.67, 0.72))
+				jcms.colormod["$pp_colour_contrast"] = Lerp(blind^2, 1.06, 1.9)
+				jcms.colormod["$pp_colour_brightness"] = Lerp(blind^2, 0.025, Lerp(brightness, -0.5, 0.4))
 			end
 		else
 			jcms.colormod["$pp_colour_addr"] = 0
@@ -1264,6 +1384,67 @@ end)
 			cam.End3D()
 			
 			render.OverrideDepthEnable( false, false )
+		end)
+	end
+
+-- // }}}
+
+-- // Sky Nukes {{{
+	do
+		local skyNukes = {}
+
+		function jcms.effect_skyNuke(pos, dur)
+			table.insert(skyNukes, {
+				targetPos = pos,
+				startPos = pos + Vector(0,0,100000),
+				tout = CurTime() + dur,
+				dur = dur
+			})
+		end
+
+		local mat_beam = Material "sprites/physbeama.vmt"
+		local mat_lamp = Material "effects/lamp_beam.vmt"
+		local mat_glow = Material "sprites/light_glow02_add"
+		hook.Add("PostDrawTranslucentRenderables", "jcms_SkyNukes", function(bDrawingDepth, bDrawingSkybox, isDraw3DSkybox )
+			if bDrawingDepth or bDrawingSkybox or isDraw3DSkybox then return end
+
+			for i=#skyNukes, 1, -1 do
+				local effect  = skyNukes[i]
+				if effect.tout < CurTime() then
+					table.remove(skyNukes, i)
+					continue
+				end
+
+				--Based on droppod effect
+				local pos = LerpVector((effect.tout - CurTime()-effect.dur/16)/effect.dur, effect.targetPos, effect.startPos)
+				local normal = Vector(0,0,-1) --PLACEHOLDER/TODO
+			
+				local col = Color(30, 255, 30)
+				local colBrighter = Color(130, 255, 120)
+			
+				local scale = 64 
+				render.SetMaterial(mat_beam)
+				render.StartBeam(2)
+					render.AddBeam(pos, math.Rand(3, 7)*scale, 0, colBrighter)
+					render.AddBeam(pos - normal*math.random(64, 100)*scale, 0, 1, col)
+				render.EndBeam()
+			
+				render.SetMaterial(mat_lamp)
+				render.StartBeam(2)
+					local width = math.Rand(12, 24)*scale
+					render.AddBeam(pos, width, 0, colBrighter)
+					render.AddBeam(pos - normal*math.random(64, 100)*scale, width, 1, col)
+				render.EndBeam()
+			
+				local ff = 1
+				col.r = Lerp(ff, col.r, colBrighter.r)
+				col.g = Lerp(ff, col.g, colBrighter.g)
+				col.b = Lerp(ff, col.b, colBrighter.b)
+			
+				scale = 16 * ff
+				render.SetMaterial(mat_glow)
+				render.DrawSprite(pos, math.Rand(32, 48)*scale, math.Rand(16, 24)*scale, col)
+			end
 		end)
 	end
 

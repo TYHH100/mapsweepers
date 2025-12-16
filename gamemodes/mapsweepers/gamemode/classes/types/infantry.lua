@@ -23,7 +23,12 @@ class.orderIndex = 2
 jcms.class_Add("infantry", class, true)
 
 -- Infantry Armor
-class.mdl = "models/player/riot.mdl"
+class.mdl = "models/player/jcms/jcorp_infantry.mdl"
+class.mdls_pvp = {
+	[1] = "models/player/jcms/jcorp_infantry.mdl",
+	[2] = "models/player/jcms/mafia_infantry.mdl"
+}
+
 class.footstepSfx = "NPC_MetroPolice.RunFootstep"
 
 class.health = 100
@@ -36,15 +41,10 @@ class.hurtMul = 1
 class.hurtReduce = 1
 class.speedMul = 1
 
-class.matOverrides = {
-	["models/cstrike/ct_gsg9"] = "models/jcms/player/infantry"
-}
-
 function class.Think(ply)
 	if CLIENT and ply ~= LocalPlayer() then return end
 
 	local wep = ply:GetActiveWeapon()
-
 	if not IsValid(wep) then return end
 
 	if not wep:IsScripted() then
@@ -57,7 +57,7 @@ function class.Think(ply)
 			else
 				local restored = 0
 				for i=clip, wep.lastClip1-1 do
-					if util.SharedRandom("InfantryAmmoRestore", 0, 1) >= 0.5 then
+					if util.SharedRandom("InfantryAmmoRestore", 0, 1, CurTime()) >= 0.5 then
 						restored = restored + 1
 					end
 				end
@@ -78,7 +78,7 @@ function class.Think(ply)
 				local owner = self:GetOwner()
 				if owner == self.jcms_infantryOwner then
 					if (num > 0 and not pool) then
-						if util.SharedRandom("InfantryAmmoRestore", 0, 1) >= 0.5 then
+						if util.SharedRandom("InfantryAmmoRestore", 0, 1, CurTime()) >= 0.5 then
 							if self:GetMaxClip1() < 10 then --not helpful for high-capacity weapons.
 								timer.Simple(0, function()
 									if IsValid(self) and not SERVER then
@@ -105,7 +105,7 @@ function class.Think(ply)
 				local owner = self:GetOwner()
 				if owner == self.jcms_infantryOwner then
 					local consumed = 0
-					if util.SharedRandom("InfantryAmmoRestore", 0, 1) >= 0.5 then
+					if util.SharedRandom("InfantryAmmoRestore", 0, 1, CurTime()) >= 0.5 then
 						consumed = originalFunction(self, count, ...)
 
 						if self:GetMaxClip1() < 10 then --not helpful for high-capacity weapons.
@@ -130,7 +130,7 @@ function class.Think(ply)
 				local owner = self:GetOwner()
 				if owner == self.jcms_infantryOwner then
 					local consumed = 0
-					if util.SharedRandom("InfantryAmmoRestore", 0, 1) >= 0.5 then
+					if util.SharedRandom("InfantryAmmoRestore", 0, 1, CurTime())  >= 0.5 then
 						consumed = originalFunction(self, count, ...)
 
 						if self:GetMaxClip1() < 10 then --not helpful for high-capacity weapons.

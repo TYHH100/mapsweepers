@@ -49,6 +49,9 @@ local prefabs = jcms.prefabs
 
 			thumper:Spawn()
 			terminal:InitAsTerminal("models/props_combine/breenconsole.mdl", "thumper_controls", function(ent, cmd, data, ply)
+				if not thumper.jcms_thumperEnabled then
+					jcms.director_PvpObjectiveCompleted(ply, thumper:GetPos())
+				end
 				thumper:Fire("Enable")
 				thumper.jcms_thumperEnabled = true
 				return true, "1"
@@ -142,7 +145,7 @@ local prefabs = jcms.prefabs
 				util.Effect("Sparks", ed)
 
 				finalDmg = math.Clamp(finalDmg, 0, 400)
-				finalDmg = finalDmg / #team.GetPlayers(1)
+				finalDmg = finalDmg / (jcms.util_IsPVP() and jcms.util_GetLargestPvpTeamCount() or #team.GetPlayers(1))
 
 				self:SetHealth( math.Clamp(self:Health() - finalDmg, 0, self:GetMaxHealth()) )
 				
@@ -160,6 +163,8 @@ local prefabs = jcms.prefabs
 
 				if self:Health() <= 0 then
 					local maxtime = math.Rand(2, 3)
+					
+					jcms.director_PvpObjectiveCompleted(attacker, self:GetPos())
 					
 					self.jcms_PostTakeDamage = nil
 					self:Fire("Disable")
@@ -200,6 +205,138 @@ local prefabs = jcms.prefabs
 	}
 -- // }}}
 
+-- // Mining Ops {{{
+	prefabs.refinery_main = {
+		check = function(area)
+			local sx, sy = area:GetSizeX(), area:GetSizeY()
+			if sx < 300 or sy < 300 then return false end
+			
+			local center = jcms.mapgen_AreaPointAwayFromEdges(area, 250)
+			local tr = util.TraceHull { start = center, endpos = center + Vector(0, 0, 120), mins = Vector(-24, -24, 0), maxs = Vector(24, 24, 64) }
+			
+			if not tr.Hit then
+				return true, center
+			else
+				return false
+			end
+		end,
+
+		stamp = function(area, center)
+			local ref = ents.Create("jcms_refinery")
+			ref:SetPos(center)
+			local goodFacing, facingAngle = jcms.mapgen_PickBestFacingDirection(center, 300, ref, MASK_PLAYERSOLID_BRUSHONLY)
+			ref:SetAngles(facingAngle)
+			ref:Spawn()
+			return ref
+		end
+	}
+
+	prefabs.refinery_secondary = {
+		check = function(area)
+			if not jcms.mapgen_ValidArea(area) or not jcms.mapgen_AreaFlat(area) then return false end
+
+			local wallspots, normals = jcms.prefab_GetWallSpotsFromArea(area, 48, 128)
+			
+			if #wallspots > 0 then
+				local rng = math.random(#wallspots)
+				return true, { pos = wallspots[rng], normal = normals[rng] }
+			else
+				return false
+			end
+		end,
+
+		stamp = function(area, data)
+			local ref = ents.Create("jcms_refinery")
+			data.pos = data.pos + data.normal * 32
+			data.pos.z = data.pos.z - 44
+			ref:SetIsSecondary(true)
+			ref:SetPos(data.pos)
+			ref:SetAngles(data.normal:Angle())
+			ref:Spawn()
+			return ref
+		end
+	}
+
+	prefabs.miningops_orevein = {
+		check = function(area)
+			return true, jcms.mapgen_AreaPointAwayFromEdges(area, 100)
+		end,
+
+		stamp = function(area, center)
+			local vein = ents.Create("jcms_orevein")
+			vein:SetPos(center)
+			vein:SetAngles(Angle(0, math.random()*360, 0))
+			vein:Spawn()
+
+			return vein
+		end
+	}
+-- // }}}
+
+-- // Data Download {{{
+	prefabs.datadownload_computer = {
+		check = function(area) --Handled by mission gen
+			return true
+		end,
+
+		stamp = function(area)
+			local ent = ents.Create("jcms_terminal")
+			if not IsValid(ent) then return end
+
+			ent:SetPos(area:GetCenter())
+			ent:Spawn()
+			ent:InitAsTerminal("models/props_combine/masterinterface.mdl", "datadownloadcomputer")
+			ent.jcms_hackType = nil
+
+			do -- Backbone prop
+				local backbone = ents.Create("prop_physics")
+				local pos = ent:GetPos()
+				local ang = ent:GetAngles()
+				ang:RotateAroundAxis(ang:Up(), 90)
+				ang:RotateAroundAxis(ang:Forward(), -90)
+				pos:Add(ang:Up()*172)
+				pos:Add(ang:Right()*-64)
+				backbone:SetModel("models/props_combine/combine_train02b.mdl")
+				backbone:SetPos(pos)
+				backbone:SetAngles(ang)
+				backbone:Spawn()
+				backbone:PhysicsInitStatic(SOLID_VPHYSICS)
+			end
+
+			do -- Ammo crate
+				local pos = ent:GetPos()
+				local ang = ent:GetAngles()
+
+				ang:RotateAroundAxis(ang:Up(), 180)
+				pos = pos + ang:Forward()*165 + ang:Up()*16
+				local ammocrate = ents.Create("jcms_ammo_crate")
+				ammocrate:SetPos(pos)
+				ammocrate:SetAngles(ang)
+				ammocrate:Spawn()
+			end
+
+			return ent
+		end
+	}
+
+	prefabs.datadownload_pillar = {
+		check = function(area)
+			return true
+		end,
+
+		stamp = function(area)
+			local pos = area:GetCenter()
+
+			local pillar = ents.Create("jcms_downloadpillar")
+			pillar:SetPos(area:GetCenter())
+			pillar:SetAngles(Angle(0, math.random(8)*45, 0))
+			pillar:Spawn()
+
+			return pillar 
+		end
+	}
+
+-- // }}}
 
 -- // Other {{{
 	prefabs.flashpoint = {

@@ -44,12 +44,13 @@ function EFFECT:Init( data )
 	-- 4: Boomer blast
 	-- 5: Electric explosion
 	-- 6: Nuke
+	-- 7: M-Blast (Type 2 but mafia)
 
 	if self.blasttype == 6 then
 		self.nukeEffect = CreateParticleSystem( self, "explosion_huge", PATTACH_ABSORIGIN_FOLLOW)
 		
 		self.t = 0
-		self.tout = 0.1
+		self.tout = 0.25
 
 		return
 	end
@@ -98,6 +99,11 @@ function EFFECT:Init( data )
 			dl.g = self.color.g
 			dl.b = self.color.b
 			dl.brightness = 2
+		elseif self.blasttype == 7 then
+			dl.r = 255
+			dl.g = 160
+			dl.b = 32
+			dl.brightness = 5
 		end
 		
 		dl.decay = 1000
@@ -189,6 +195,9 @@ function EFFECT:Think()
 		if self.nukeEffect and not self.nuked then
 			self.nukeEffect:StartEmission()
 			self.nuked = true
+
+			jcms.colormod_Add(Color(100,255,100), 0.75, 0, 0.05, 0, 0.15)
+			jcms.colormod_Add(Color(0,60,0), 0.75, 0.05, 0.15, 0, 4.5)
 		end
 
 		self.t = math.min(self.tout, self.t + FrameTime())
@@ -199,10 +208,6 @@ function EFFECT:Think()
 end
 
 function EFFECT:Render()
-	if self.nukeEffect then
-		return
-	end
-
 	local f = self.t / self.tout
 	
 	if self.blasttype == 3 then
@@ -302,6 +307,15 @@ function EFFECT:Render()
 				render.EndBeam()
 			end
 		end
+	elseif self.blasttype == 6 then
+		local blastCol = Color(175, 255, 175, 200 * (1-f)^2)
+		render.SetColorMaterial()
+		render.DrawSphere( self.pos, 4500 * f^1.5, 12, 12, blastCol)
+		render.DrawSphere( self.pos, -4500 * f^1.5, 12, 12, blastCol )
+
+		local ringCol = Color(150, 255, 150, 200 * (1-f)^2)
+		render.SetMaterial(self.mat_ring1)
+		render.DrawQuadEasy(self.pos, jcms.vectorUp, 6500*f*4, 6500*f*4, ringCol)
 	else
 		local f_flash = 1 - 0.1 / (0.1 + f)
 		local a_flash = math.max(0, 1-f*4)
@@ -316,6 +330,10 @@ function EFFECT:Render()
 				self.color.r = 255*a_flash
 				self.color.g = 150*a_flash*a_flash*a_flash
 				self.color.b = 150*a_flash*a_flash*a_flash
+			elseif self.blasttype == 7 then
+				self.color.r = 255*a_flash
+				self.color.g = 230*a_flash
+				self.color.b = 150*a_flash*a_flash
 			end
 		
 			render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
@@ -324,7 +342,7 @@ function EFFECT:Render()
 				render.DrawSprite(self.pos, self.size*e_flash*2, self.size*e_flash*2, self.color)
 				render.SetColorMaterial()
 				render.DrawSphere(self.pos, self.size*f_flash, 7, 7, self.color)
-			elseif self.blasttype == 2 then
+			elseif self.blasttype == 2 or self.blasttype == 7 then
 				render.SetMaterial(self.mat_fire3)
 				render.DrawSprite(self.pos, self.size*e_flash*2, self.size*e_flash*2, self.color)
 			end
@@ -333,7 +351,7 @@ function EFFECT:Render()
 		
 		if self.blasttype == 1 then
 			render.SetMaterial(self.mat_ring1)
-		elseif self.blasttype == 2 then
+		elseif self.blasttype == 2 or self.blasttype == 7 then
 			render.SetMaterial(self.mat_ring2)
 		end
 		

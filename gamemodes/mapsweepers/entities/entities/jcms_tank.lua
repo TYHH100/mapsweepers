@@ -101,7 +101,9 @@ function ENT:Initialize()
 				tower:SetTankOtherPart(self)
 				tower:SetPos(self:GetPos())
 				tower:SetAngles(self:GetAngles())
+				tower:SetNWInt("jcms_pvpTeam", self:GetNWInt("jcms_pvpTeam", -1))
 				tower:Spawn()
+				jcms.util_TryUpdateForPVP(tower)
 				
 				local axis = constraint.Axis(self, tower, 0, 0, Vector(0, 0, 1), Vector(0, 0, -1), 0, 0, 50, 1)
 				self:SetTankOtherPart(tower)
@@ -110,7 +112,7 @@ function ENT:Initialize()
 				tower.tankAxis = axis
 				
 				local ed = EffectData()
-				ed:SetColor(jcms.util_colorIntegerJCorp)
+				ed:SetColor(jcms.util_GetColorIntegerPvP(self))
 				ed:SetFlags(0)
 				ed:SetEntity(tower)
 				util.Effect("jcms_spawneffect", ed)
@@ -132,6 +134,17 @@ function ENT:Initialize()
 	
 	if SERVER then
 		self:AddEFlags(EFL_DONTBLOCKLOS)
+		--self:AddFlags(FL_NOTARGET)
+	end
+end
+
+function ENT:UpdateForFaction(faction)
+	if self:Health() <= 0 then
+		self:SetMaterial("models/jcms/"..faction.."_tank_destroyed")
+	else
+		for i, matname in ipairs(self:GetMaterials()) do
+			self:SetSubMaterial(i-1, matname:gsub("jcorp_", tostring(faction) .. "_"))
+		end
 	end
 end
 
@@ -260,15 +273,15 @@ if SERVER then
 		if not self:GetTankIsTower() and data.HitEntity:Health() > 0 then
 			local speed = data.OurOldVelocity:Length()
 			
-			if speed > 50 then
-				local dmg = DamageInfo()
-				dmg:SetDamage(math.sqrt(speed) / 10 + 5)
-				dmg:SetAttacker(self:GetDriver() or self)
-				dmg:SetInflictor(self)
-				dmg:SetDamageType(bit.bor(DMG_CRUSH, DMG_VEHICLE))
-				dmg:SetReportedPosition(self:GetPos())
-				dmg:SetDamagePosition(data.HitPos)
-				data.HitEntity:TakeDamageInfo(dmg)
+			if data.HitEntity:IsNPC() then
+				local dmgInfo = DamageInfo()
+				dmgInfo:SetDamage(speed/5 + (IsValid(self:GetDriver()) and 15 or 0))
+				dmgInfo:SetAttacker(self:GetDriver() or self)
+				dmgInfo:SetInflictor(self)
+				dmgInfo:SetDamageType(bit.bor(DMG_CRUSH, DMG_VEHICLE))
+				dmgInfo:SetReportedPosition(self:GetPos())
+				dmgInfo:SetDamagePosition(data.HitPos)
+				data.HitEntity:TakeDamageInfo(dmgInfo)
 			end
 			
 			if speed > 700 then
@@ -532,7 +545,8 @@ if SERVER then
 			if (not tower.nextShot or CurTime() - tower.nextShot > 0) then
 				local driver = self:GetDriver() or NULL
 				local angles = self:TowerAngles()
-				
+				local isMafia = ply:GetNWInt("jcms_pvpTeam", -1) == 2
+
 				local bullet = ents.Create("prop_physics")
 				local shootPos = tower:GetPos() + angles:Forward()*64 + angles:Right()*(self.altBarrel and 1 or -1)*12 + angles:Up()*75 
 				bullet:SetPos(shootPos)
@@ -553,7 +567,7 @@ if SERVER then
 				physBullet:SetDamping(0, 0)
 				physBullet:EnableGravity(false)
 				physBullet:Wake()
-				util.SpriteTrail(bullet, 0, Color(255, 110, 130), true, 64, 0, 0.25, 1, "sprites/physbeama")
+				util.SpriteTrail(bullet, 0, isMafia and Color(255, 180, 100) or Color(255, 110, 130), true, 64, 0, 0.25, 1, "sprites/physbeama")
 				
 				local physTower = tower:GetPhysicsObject()
 				physTower:ApplyForceOffset(angles:Forward() * physTower:GetMass() * -75, shootPos)
@@ -577,7 +591,7 @@ if SERVER then
 				local ed = EffectData()
 				ed:SetEntity(tower)
 				ed:SetScale(6)
-				ed:SetFlags(2)
+				ed:SetFlags(isMafia and 1 or 2)
 				ed:SetStart(shootPos)
 				ed:SetNormal(angles:Forward())
 				util.Effect("jcms_muzzleflash", ed)
@@ -605,7 +619,7 @@ if SERVER then
 				missile.Proximity = 40
 				missile.ActivationTime = CurTime() + 0.35
 				missile.jcms_owner = ply
-				missile:SetBlinkColor(Vector(1, 0, 0))
+				missile:SetBlinkColor(jcms.util_GetPVPVectorColor(ply))
 				missile:Spawn()
 				missile:GetPhysicsObject():SetVelocity(angles:Forward()*32 + pushAway)
 				
@@ -679,7 +693,7 @@ if SERVER then
 		if self:Health() <= 0 then
 			self.jcms_destroyed = true
 			if not self:GetTankIsTower() then
-				self:SetMaterial("models/jcms/jcorp_tank_destroyed")
+				jcms.util_TryUpdateForPVP(self)
 				self:Ignite(math.Rand(15, 45))
 				
 				timer.Simple(math.Rand(0.5, 2.5), function()
@@ -698,7 +712,7 @@ if SERVER then
 				util.Effect("jcms_blast", ed)
 				util.Effect("Explosion", ed)
 			elseif self:GetTankIsTower() then
-				self:SetMaterial("models/jcms/jcorp_tank_destroyed")
+				jcms.util_TryUpdateForPVP(self)
 				self:Ignite(math.Rand(10, 30))
 				
 				if IsValid(self.tankAxis) then

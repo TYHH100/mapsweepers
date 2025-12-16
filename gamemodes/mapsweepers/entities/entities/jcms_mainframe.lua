@@ -62,7 +62,7 @@ if SERVER then
 		else
 			--Charging
 			for i, ent in ipairs(ents.FindInSphere(self:WorldSpaceCenter(), self.Radius)) do 
-				if ent:IsNPC() and not jcms.team_JCorp_ent(ent) then 
+				if ent:IsNPC() and not ent.jcms_noSweeperShields and not jcms.team_JCorp_ent(ent) then 
 					if ent:WorldSpaceCenter():DistToSqr(self:WorldSpaceCenter()) <= (self.Radius/2)^2 and ent:GetNWInt("jcms_sweeperShield_max", -1) == -1 then 
 						local colInt = jcms.factions_GetColorInteger("rebel")
 
@@ -89,7 +89,7 @@ if SERVER then
 		end
 
 		--Death rays
-		if self.nextBombardment < CurTime() then 
+		if (self.nextBombardment < CurTime()) and not (jcms.director and jcms.director.debug) then 
 			if self.bombardmentActive then --JCorp Death-beams
 				for i=1, 3, 1 do
 					local targetArea = jcms.mapgen_UseRandomArea() --Convenient way of targeting some-place valid.
@@ -104,6 +104,7 @@ if SERVER then
 					beam:Spawn()
 					beam.beamPrepTime = prep
 					beam.beamLifeTime = 20
+					beam.jcms_owner = self
 					
 					beam.deathRay.DPS = 60
 					beam.deathRay.DPS_DIRECT = 60
@@ -111,6 +112,14 @@ if SERVER then
 					beam.deathRay:SetBeamPrepTime(prep)
 					beam.deathRay.jcms_owner = self
 					beam.deathRay:SetBeamLifeTime(20)
+
+					if jcms.util_IsPVP() then
+						beam.deathRay:SetBeamColour( Vector(0.7, 0.1, 1) )
+					else
+						beam.deathRay:SetBeamColour( Vector(1, 0.1, 0.1) )
+					end
+
+					beam.IsIdleUntilActive = true --Don't track until we're actually fully formed.
 				end
 			elseif jcms.npc_airCheck() then --Missiles 
 				local pos = self:WorldSpaceCenter() + (jcms.vectorUp * 180)
@@ -201,18 +210,18 @@ if CLIENT then
 	for i=1, 3 do
 		ENT.ScreenSubmatNames_RGG[i] = "!jcms_mainframescreen_rgg" .. i
 		ENT.ScreenRT_RGG[i] = GetRenderTarget("jcms_mainframescreen_rgg"..i.."_rt", 300, 200)
-		ENT.ScreenRTMats_RGG[i] = CreateMaterial("jcms_mainframescreen_rgg" .. i, "UnlitGeneric", {
+		ENT.ScreenRTMats_RGG[i] = CreateMaterial("jcms_mainframescreen_rgg" .. i, "VertexLitGeneric", {
 			["$basetexture"] = ENT.ScreenRT_RGG[i]:GetName(),
 			["$pointsamplemagfilter"] = 1,
-			["$nofog"] = 1
+			["$selfillum"] = 1
 		})
 
 		ENT.ScreenSubmatNames_JCorp[i] = "!jcms_mainframescreen_jcorp" .. i
 		ENT.ScreenRT_JCorp[i] = GetRenderTarget("jcms_mainframescreen_jcorp"..i.."_rt", 300, 200)
-		ENT.ScreenRTMats_JCorp[i] = CreateMaterial("jcms_mainframescreen_jcorp" .. i, "UnlitGeneric", {
+		ENT.ScreenRTMats_JCorp[i] = CreateMaterial("jcms_mainframescreen_jcorp" .. i, "VertexLitGeneric", {
 			["$basetexture"] = ENT.ScreenRT_JCorp[i]:GetName(),
 			["$pointsamplemagfilter"] = 1,
-			["$nofog"] = 1
+			["$selfillum"] = 1
 		})
 	end
 	
@@ -336,68 +345,81 @@ if CLIENT then
 		end
 		-- }}}
 
-		-- JCorp Screen 1: J Corp {{{
-		if red1 then
-			render.PushRenderTarget(self.ScreenRT_JCorp[1])
-			cam.Start2D()
-				draw.NoTexture()
-				local sin = (math.sin(CurTime())+1)/2
-				surface.SetDrawColor(sin*255, 0, 0, 180)
-				surface.DrawRect(0, 0, 300, 200)
-				local c2 = Color((1-sin)*255, 0, 0)
-				draw.SimpleText(string.rep("J ", 16), "jcms_hud_huge", 300/2 - 256*sin, 200/2, c2, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-				surface.SetDrawColor(c2)
-				surface.DrawRect(0, 8, 300, 8)
-				surface.DrawRect(0, 200-16, 300, 8)
-			cam.End2D()
-			render.PopRenderTarget()
-		end
-		-- }}}
+		if jcms.util_IsPVP() then
+			local conds = { red1, red2, red3 }
+			for i=1, 3 do
+				if not conds[i] then continue end
+				render.PushRenderTarget(self.ScreenRT_JCorp[i])
+				cam.Start2D()
+					surface.SetDrawColor(14, 14, 14)
+					surface.DrawRect(0, 0, 300, 200)
+				cam.End2D()
+				render.PopRenderTarget()
+			end
+		else
+			-- JCorp Screen 1: J Corp {{{
+			if red1 then
+				render.PushRenderTarget(self.ScreenRT_JCorp[1])
+				cam.Start2D()
+					draw.NoTexture()
+					local sin = (math.sin(CurTime())+1)/2
+					surface.SetDrawColor(sin*255, 0, 0, 180)
+					surface.DrawRect(0, 0, 300, 200)
+					local c2 = Color((1-sin)*255, 0, 0)
+					draw.SimpleText(string.rep("J ", 16), "jcms_hud_huge", 300/2 - 256*sin, 200/2, c2, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+					surface.SetDrawColor(c2)
+					surface.DrawRect(0, 8, 300, 8)
+					surface.DrawRect(0, 200-16, 300, 8)
+				cam.End2D()
+				render.PopRenderTarget()
+			end
+			-- }}}
 
-		-- JCorp Screen 2: Digits {{{
-		if red2 then
-			render.PushRenderTarget(self.ScreenRT_JCorp[2])
-			cam.Start2D()
-				draw.NoTexture()
-				surface.SetDrawColor(32, 0, 0, 128)
-				surface.DrawRect(0, 0, 300, 200)
-				
-				surface.SetDrawColor(255, 0, 0)
-				local pad = math.floor( (math.sin(CurTime()*4)+1)*4+2 )
-				surface.DrawOutlinedRect(pad, pad, 300-pad*2, 200-pad*2, 1)
+			-- JCorp Screen 2: Digits {{{
+			if red2 then
+				render.PushRenderTarget(self.ScreenRT_JCorp[2])
+				cam.Start2D()
+					draw.NoTexture()
+					surface.SetDrawColor(32, 0, 0, 128)
+					surface.DrawRect(0, 0, 300, 200)
+					
+					surface.SetDrawColor(255, 0, 0)
+					local pad = math.floor( (math.sin(CurTime()*4)+1)*4+2 )
+					surface.DrawOutlinedRect(pad, pad, 300-pad*2, 200-pad*2, 1)
 
-				surface.SetFont("jcms_big")
-				surface.SetTextColor(255, 0, 0, 170)
-				local time = CurTime()
-				for x=1, 9 do
-					for y = 1, 6 do
-						local rn = math.floor( (time+x/4+y/6)%2 )
-						surface.SetTextPos(x*30-24+15, y*28-20+6)
-						surface.DrawText(rn)
+					surface.SetFont("jcms_big")
+					surface.SetTextColor(255, 0, 0, 170)
+					local time = CurTime()
+					for x=1, 9 do
+						for y = 1, 6 do
+							local rn = math.floor( (time+x/4+y/6)%2 )
+							surface.SetTextPos(x*30-24+15, y*28-20+6)
+							surface.DrawText(rn)
+						end
 					end
-				end
-			cam.End2D()
-			render.PopRenderTarget()
-		end
-		-- }}}
+				cam.End2D()
+				render.PopRenderTarget()
+			end
+			-- }}}
 
-		-- JCorp Screen 3: BusinessOS {{{
-		if red3 then
-			render.PushRenderTarget(self.ScreenRT_JCorp[3])
-			cam.Start2D()
-				surface.SetDrawColor(255, 0, 0)
-				render.DepthRange(0, 0)
-				jcms.hud_DrawNoiseRect(0, 0, 300, 200, 16)
-				jcms.hud_DrawStripedRect(0, 8, 300, 4, 32, CurTime()*32)
-				jcms.hud_DrawStripedRect(0, 200-8-4, 300, 4, 32, CurTime()*-32)
-				render.DepthRange(0, 1)
+			-- JCorp Screen 3: BusinessOS {{{
+			if red3 then
+				render.PushRenderTarget(self.ScreenRT_JCorp[3])
+				cam.Start2D()
+					surface.SetDrawColor(255, 0, 0)
+					render.DepthRange(0, 0)
+					jcms.hud_DrawNoiseRect(0, 0, 300, 200, 16)
+					jcms.hud_DrawStripedRect(0, 8, 300, 4, 32, CurTime()*32)
+					jcms.hud_DrawStripedRect(0, 200-8-4, 300, 4, 32, CurTime()*-32)
+					render.DepthRange(0, 1)
 
-				draw.SimpleText("#jcms.terminal_mainframe_hacked", "jcms_medium", 300/2, 16, Color(255, 0, 0), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
-				draw.SimpleText("v.523", "jcms_hud_big", 300/2, 200/2, Color(255, 0, 0), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
-			cam.End2D()
-			render.PopRenderTarget()
+					draw.SimpleText("#jcms.terminal_mainframe_hacked", "jcms_medium", 300/2, 16, Color(255, 0, 0), TEXT_ALIGN_CENTER, TEXT_ALIGN_TOP)
+					draw.SimpleText("v.523", "jcms_hud_big", 300/2, 200/2, Color(255, 0, 0), TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+				cam.End2D()
+				render.PopRenderTarget()
+			end
+			-- }}}
 		end
-		-- }}}
 	end
 
 	function ENT:UpdateScreens()

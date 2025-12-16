@@ -546,6 +546,14 @@
 	} )
 -- // }}}
 
+jcms.npc_commanders["rebel"] = {
+	placePrefabs = function(c, data)
+		--Faction prefabs
+		local count = math.ceil(jcms.mapgen_AdjustCountForMapSize( 2 ) * jcms.runprogress_GetDifficulty())
+		jcms.mapgen_PlaceFactionPrefabs(count, "rebel")
+	end
+}
+
 jcms.npc_types.rebel_rgg = {
 	portalSpawnWeight = 0.5,
 	faction = "rebel",
@@ -583,12 +591,22 @@ jcms.npc_types.rebel_rgg = {
 
 		npc.jcms_rgg_nextTeleport = CurTime()
 		npc.jcms_rgg_teleporting = false
+		npc.jcms_noSweeperShields = true
 	end,
 	
 	takeDamage = function(npc, dmg)
+		if npc:Health() > 4 then
+			npc:SetHealth(4)
+		end
+
         dmg:SetDamageType(DMG_DISSOLVE)
+
 		if dmg:GetDamage() > 0 then
-			dmg:SetDamage(1)
+			if jcms.util_IsStunstick( dmg:GetInflictor() ) then
+				dmg:SetDamage(npc:Health())
+			else
+				dmg:SetDamage(1)
+			end
 		end
     end,
     
@@ -624,6 +642,9 @@ jcms.npc_types.rebel_rgg = {
 			local ed = EffectData()
 			ed:SetEntity(npc)
 			ed:SetScale(1.1) --Activation time
+			ed:SetMagnitude(16)
+            ed:SetColor( jcms.util_ColorIntegerFast(230, 32, 255) )
+			ed:SetMaterialIndex(1)
 			util.Effect("jcms_electricarcs", ed)
 
 			npc.jcms_rgg_nextTeleport = CurTime() + 2.5
@@ -664,6 +685,13 @@ jcms.npc_types.rebel_fighter = {
 		npc:SetMaxHealth( npc:Health() + 5 )
 		npc:SetHealth( npc:GetMaxHealth() )
 		npc:Fire("SetMedicOn") 
+
+		local wep = npc:GetActiveWeapon()
+		if IsValid(wep) then
+			if wep:GetClass() ~= "weapon_ar2" then
+				wep:SetSaveValue("m_fMaxRange1", 1000)
+			end
+		end
 	end,
 
 	think = function(npc) 
@@ -698,8 +726,13 @@ jcms.npc_types.rebel_medic = {
 	postSpawn = function(npc)
 		npc:Fire("SetMedicOn")
 		
-		if npc:GetActiveWeapon():GetClass() == "weapon_shotgun" then 
-			npc:SetSaveValue("m_flDistTooFar", 500)
+		local wep = npc:GetActiveWeapon()
+		if IsValid(wep) then
+			if wep:GetClass() == "weapon_shotgun" then 
+				wep:SetSaveValue("m_fMaxRange1", 600)
+			elseif wep:GetClass() == "weapon_smg1" then
+				wep:SetSaveValue("m_fMaxRange1", 1000)
+			end
 		end
 	end,
 	
@@ -954,7 +987,7 @@ jcms.npc_types.rebel_odessa = {
 	proficiency = WEAPON_PROFICIENCY_VERY_GOOD
 }
 
-jcms.npc_types.rebel_alyx = { --todo: Stun when hit w/stunstick
+jcms.npc_types.rebel_alyx = { 
 	portalSpawnWeight = 0,
 	faction = "rebel",
 	
@@ -986,6 +1019,7 @@ jcms.npc_types.rebel_alyx = { --todo: Stun when hit w/stunstick
 		
 		npc:GetActiveWeapon():SetSaveValue("m_fMaxRange1", 1000)
 		npc:SetSaveValue("m_flDistTooFar", 1000)
+		npc.jcms_noSweeperShields = true
 	end,
 
 	takeDamage = function(npc, dmg) --Alyx self-heals and there's no way (that I've found in the documentation) to disable that. This is a work-around because that's awful.
@@ -1104,7 +1138,9 @@ jcms.npc_types.rebel_dog = {
 	class = "npc_jcms_dog",
 	bounty = 135,
 	
-	portalScale = 3
+	portalScale = 3,
+	
+	hullType = HULL_LARGE
 }
 
 jcms.npc_types.rebel_vortigaunt = {
@@ -1153,12 +1189,13 @@ jcms.npc_types.rebel_vortigaunt = {
 	
 	think = function(npc, state)
 		if npc.jcms_vortNextCharge < CurTime() and not npc.jcms_vortCharging then --Apply shields every 30s
-			-- TODO: PLACEHOLDER. {{{
-				local ed = EffectData()
-				ed:SetEntity(npc)
-				ed:SetScale(1)
-				util.Effect("jcms_electricarcs", ed)
-			-- }}}
+			local ed = EffectData()
+			ed:SetEntity(npc)
+			ed:SetScale(1)
+			ed:SetMagnitude(24)
+			ed:SetColor( jcms.util_ColorIntegerFast(64, 255, 64) )
+			ed:SetMaterialIndex(2)
+			util.Effect("jcms_electricarcs", ed)
 
 			local targetCount = 0
 			for i, ent in ipairs(ents.FindInSphere(npc:GetPos(), 175)) do
@@ -1182,7 +1219,7 @@ jcms.npc_types.rebel_vortigaunt = {
 							local ed = EffectData()
 							ed:SetEntity(ent)
 							ed:SetFlags(2)
-							ed:SetColor(jcms.util_ColorIntegerFast(0, 255, 0))
+							ed:SetColor(jcms.util_ColorIntegerFast(128, 255, 128))
 							util.Effect("jcms_shieldeffect", ed)
 							ent:EmitSound("items/suitchargeok1.wav", 50, 130, 0.5)
 						elseif ent:IsNPC() and not(ent:GetNWInt("jcms_sweeperShield_max") == -1) and ent:GetMaxHealth() < 100 then
@@ -1268,7 +1305,10 @@ jcms.npc_types.rebel_megacopter = {
 
 			local ed = EffectData()
 			ed:SetEntity(npc)
-			ed:SetScale(0) --Activation time
+			ed:SetScale(0) -- Infinite duration
+			ed:SetMagnitude(64)
+			ed:SetColor( jcms.util_ColorIntegerFast(255, 0, 255) )
+			ed:SetMaterialIndex(1)
 			util.Effect("jcms_electricarcs", ed)
 
 			local ed = EffectData()

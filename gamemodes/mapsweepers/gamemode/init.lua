@@ -20,10 +20,10 @@
 --]]
 DEFINE_BASECLASS("gamemode_base")
 
-include "sh_debugtools.lua"
+include "_main/sh_debugtools.lua"
 
-include "sh_bspReader.lua" --Data from the BSP. We probably(?) want to use this in mapgen and missions, so I put it at the top. - J
-do
+include "_main/sh_bspReader.lua" --Data from the BSP. We probably(?) want to use this in mapgen and missions, so I put it at the top. - J
+do --TODO: PCALL
 	local bspReadStart = SysTime()
 	bspReader.readLeafData()
 	bspReader.readNodeData()
@@ -33,21 +33,21 @@ do
 	print("[MapSweepers] BSP Data read in: " .. tostring( math.Round(SysTime() - bspReadStart, 3) ) .. " seconds")
 end
 
-include "sh_ainReader.lua" --i like eating binrary numbrs- j
+include "_main/sh_ainReader.lua" --i like eating binrary numbrs- j
 ainReader.readNodeData()
 
 include "shared.lua"
-include "sh_net.lua"
-include "sh_hints.lua"
-include "sv_director.lua"
-include "sh_controls.lua"
-include "sv_terminal.lua"
-include "sv_spawnmenu.lua"
-include "sv_mapgen.lua"
-include "sv_addoncompatibility.lua"
-include "sh_announcer.lua"
-include "sh_factions.lua"
-include "sh_statistics.lua"
+include "_main/sh_net.lua"
+include "_main/sh_hints.lua"
+include "_main/server/sv_director.lua"
+include "_main/sh_controls.lua"
+include "_main/server/sv_terminal.lua"
+include "_main/server/sv_spawnmenu.lua"
+include "_main/server/sv_mapgen.lua"
+include "_main/server/sv_addoncompatibility.lua"
+include "_main/sh_announcer.lua"
+include "_main/sh_factions.lua"
+include "_main/sh_statistics.lua"
 
 -- // Mission Includes {{{
 	do 
@@ -106,31 +106,33 @@ include "sh_statistics.lua"
 -- // }}}
 
 AddCSLuaFile "shared.lua"
-AddCSLuaFile "sh_controls.lua"
-AddCSLuaFile "sh_net.lua"
-AddCSLuaFile "sh_hints.lua"
-AddCSLuaFile "sh_announcer.lua"
-AddCSLuaFile "sh_factions.lua"
-AddCSLuaFile "cl_hud.lua"
-AddCSLuaFile "cl_hud_npc.lua"
-AddCSLuaFile "cl_flashlights.lua"
-AddCSLuaFile "cl_terminal.lua"
-AddCSLuaFile "cl_objectives.lua"
-AddCSLuaFile "cl_spawnmenu.lua"
-AddCSLuaFile "cl_paint.lua"
-AddCSLuaFile "cl_offgame.lua"
+AddCSLuaFile "_main/sh_controls.lua"
+AddCSLuaFile "_main/sh_net.lua"
+AddCSLuaFile "_main/sh_hints.lua"
+AddCSLuaFile "_main/sh_announcer.lua"
+AddCSLuaFile "_main/sh_factions.lua"
+AddCSLuaFile "_main/client/ui/cl_hud.lua"
+AddCSLuaFile "_main/client/ui/cl_hud_npc.lua"
+AddCSLuaFile "_main/client/cl_flashlights.lua"
+AddCSLuaFile "_main/client/cl_terminal.lua"
+AddCSLuaFile "_main/client/ui/cl_objectives.lua"
+AddCSLuaFile "_main/client/ui/cl_spawnmenu.lua"
+AddCSLuaFile "_main/client/ui/cl_paint.lua"
+AddCSLuaFile "_main/client/ui/cl_offgame.lua"
 AddCSLuaFile "missions/cl_missions.lua"
-AddCSLuaFile "sh_statistics.lua"
-AddCSLuaFile "cl_codex.lua"
+AddCSLuaFile "_main/sh_statistics.lua"
+AddCSLuaFile "_main/client/cl_codex.lua"
 AddCSLuaFile "npcs/cl_bestiary.lua"
-AddCSLuaFile "cl_addoncompatibility.lua"
+AddCSLuaFile "_main/client/cl_addoncompatibility.lua"
 
 if jcms.inTutorial then
-	include "sv_tutorial.lua"
-	AddCSLuaFile "cl_tutorial.lua"
+	include "_main/server/sv_tutorial.lua"
+	AddCSLuaFile "_main/client/cl_tutorial.lua"
 end
 
 -- // Resources {{{
+
+	resource.AddWorkshop("3564041088") --TODO: TEMPORARY. Needed for ZMod to work.
 
 	resource.AddSingleFile("resource/fonts/jcms_regular.ttf")
 	resource.AddSingleFile("resource/fonts/jcms_light.ttf")
@@ -235,7 +237,7 @@ end
 		local isEntAndAttackerSameTeam = jcms.team_SameTeam(attacker, ent)
 
 		if isEntAndAttackerSameTeam then
-			if attacker:IsPlayer() and jcms.team_NPC(attacker) then
+			if attacker:IsPlayer() and jcms.team_NPC(attacker) and not (IsValid(inflictor) and inflictor.jcms_canHurtSelfAsNPC) then
 				dmg:ScaleDamage(0) -- NPC-players can't do friendly fire damage to NPCs
 				return
 			else
@@ -250,7 +252,7 @@ end
 			return 0
 		elseif ent:IsPlayer() then
 			ent.jcms_lastDamaged = CurTime()
-			jcms.net_SendDamage(ent, dmginfo)
+			jcms.net_SendDamage(ent, dmg)
 		end
 
 		local swpShield = ent:GetNWInt("jcms_sweeperShield", 0)
@@ -294,10 +296,14 @@ end
 			if attacker:IsPlayer() then
 				local data = jcms.class_GetData(attacker)
 
-				if ent:IsPlayer() and isEntAndAttackerSameTeam then
-					local dmgAmnt = dmg:GetDamage()
-					local dmgCap = (ent:GetMaxHealth() + ent:GetMaxArmor()) * 0.75
-					dmg:SetDamage( math.Clamp(dmgAmnt, 0, dmgCap) )
+				if ent:IsPlayer() then
+					if isEntAndAttackerSameTeam then 
+						local dmgAmnt = dmg:GetDamage()
+						local dmgCap = (ent:GetMaxHealth() + ent:GetMaxArmor()) * 0.75
+						dmg:SetDamage( math.Clamp(dmgAmnt, 0, dmgCap) )
+					elseif (not jcms.team_pvpSameTeam(attacker, ent)) and jcms.team_JCorp_player(attacker) and jcms.team_JCorp_player(ent) then 
+						dmg:ScaleDamage(0.75) --Slight dmg reduction for PvP players.
+					end
 				end
 
 				if inflictor:IsWeapon() and not inflictor.Base then -- Scale damage done by all engine weapons
@@ -370,15 +376,26 @@ end
 			end
 		end
 
-		if IsValid(attacker) and (attacker:GetClass() == "npc_headcrab_poison" or attacker:GetClass() == "npc_headcrab_black") then
+		if IsValid(attacker) then
 			--Their default behaviour seems to be hardcoded in hl2, and messing with the damageinfo breaks it (causes them to instakill).
 			--This is a bandaid solution to that. 
 
-			local hp = ent:Health()
-			if ent:IsPlayer() then
-				dmg:SetDamage( math.min(hp-5, dmg:GetDamage()) )
-			else
-				dmg:SetDamage(math.min(math.max(0, hp-1), 5))
+			local attkClass = attacker:GetClass()
+			local isCrab = attkClass == "npc_headcrab_poison" or attkClass == "npc_headcrab_black"
+			local isCavernGuard = attkClass == "npc_antlionguard" and attacker:GetInternalVariable("m_bCavernBreed")
+			local isWorker = attkClass == "npc_antlion" and attacker:HasSpawnFlags( 262144 ) -- 262144 = worker spawnflags
+
+			if isCrab then
+				local hp = ent:Health()
+				if ent:IsPlayer() then
+					dmg:SetDamage( math.min(hp-5, dmg:GetDamage()) )
+				else
+					dmg:SetDamage(math.min(math.max(0, hp-1), 5))
+				end
+			elseif isCavernGuard or isWorker then 
+				if ent:IsPlayer() then 
+					dmg:SetDamage( math.min( dmg:GetDamage(), ent:GetMaxHealth() * 0.75 ) )
+				end
 			end
 		end
 	end)
@@ -389,6 +406,30 @@ end
 			npcTbl.jcms_ScaleDamage(npc, hitGroup, dmgInfo)
 		end
 	end)
+
+	hook.Add( "FindUseEntity", "jcms_pickupOverride", function( ply, defaultEnt )
+		--Allow us to pick grenades up through NPCs.
+		if IsValid(defaultEnt) then return end
+
+		local ep = ply:EyePos()
+		local endpos = ply:EyeAngles():Forward()
+		endpos:Mul(100)
+		endpos:Add(ep)
+
+		local tr = util.TraceLine({
+			start = ep,
+			endpos = endpos,
+
+			mask = MASK_PLAYERSOLID_BRUSHONLY
+		})
+		if not tr.Hit then return end
+
+		for i, ent in ipairs(ents.FindInSphere(tr.HitPos, 15)) do 
+			if ent:GetClass() == "npc_grenade_frag" then 
+				return ent
+			end
+		end
+	end )
 	
 	hook.Add("PostEntityTakeDamage", "jcms_Adjustments", function(ent, dmg)
 		local entTbl = ent:GetTable()
@@ -456,6 +497,12 @@ end
 		local currentObjectives = jcms.mission_GetObjectives()
 		if #currentObjectives > 0 then
 			jcms.net_ShareMissionData(currentObjectives, ply)
+		end
+
+		local pvpAllowed = jcms.cvar_pvpallowed:GetInt()
+		if (pvpAllowed == 1) and (jcms.util_IsPVPAllowed()) and (not jcms.director) and (not jcms.pvp_firstVote) then
+			jcms.pvp_firstVote = true 
+			jcms.pvp_StartVote(40)
 		end
 	end)
 
@@ -547,6 +594,13 @@ end
 			end)
 		end
 	end)
+
+	hook.Add("PlayerCanSeePlayersChat", "jcms_teamChat", function(text, teamOnly, listener, speaker)
+		return not teamOnly or jcms.team_SameTeam(listener, speaker)
+	end)
+	hook.Add("PlayerCanHearPlayersVoice", "jcms_teamChat", function(listener, speaker)
+		return not jcms.util_IsPVP() or jcms.team_SameTeam(listener, speaker)
+	end)
 -- // }}}
 
 -- // Run Progress {{{
@@ -572,7 +626,7 @@ end
 	end
 
 	function jcms.runprogress_GetDifficulty()
-		return jcms.runprogress.difficulty
+		return jcms.util_IsPVP() and 1 or jcms.runprogress.difficulty
 	end
 
 	function jcms.runprogress_Victory()
@@ -610,6 +664,8 @@ end
 	end
 
 	function jcms.runprogress_GetStartingCash(ply_or_sid64)
+		if jcms.util_IsPVP() then return jcms.cvar_cash_start:GetInt() end
+
 		local sid64 = tostring(ply_or_sid64)
 		if type(ply_or_sid64) == "Player" then
 			sid64 = ply_or_sid64:SteamID64()
@@ -620,7 +676,7 @@ end
 	end
 
 	function jcms.runprogress_UpdateAllPlayers()
-		for i, ply in ipairs(player.GetAll()) do 
+		for i, ply in player.Iterator() do 
 			ply:SetNWInt("jcms_cash", jcms.runprogress_GetStartingCash(ply))
 			--print(jcms.runprogress_GetStartingCash(ply))
 		end
@@ -1081,9 +1137,10 @@ end
 				local allTargets = {}
 				local currentTarget = ply:GetObserverTarget()
 				local currentTargetIndex = 1
+				local myTeam = ply:GetNWInt("jcms_pvpTeam", -1)
 
 				for i, oply in ipairs(team.GetPlayers(1)) do
-					if IsValid(oply) and oply~=ply and oply:Alive() and oply:GetObserverMode() == OBS_MODE_NONE then
+					if jcms.director_CanSpectate(ply, oply) then
 						table.insert(allTargets, oply)
 						
 						if currentTarget == oply then
@@ -1092,9 +1149,13 @@ end
 					end
 				end
 
-				local nextTarget = allTargets[ (currentTargetIndex+switchDir-1)%(#allTargets)+1 ]
-				if IsValid(nextTarget) and nextTarget ~= currentTarget then
-					ply:SpectateEntity(nextTarget)
+				if #allTargets == 0 and jcms.director then 
+					ply:SpectateEntity(jcms.director.npcs[math.random(#jcms.director.npcs)])
+				else
+					local nextTarget = allTargets[ (currentTargetIndex+switchDir-1)%(#allTargets)+1 ]
+					if IsValid(nextTarget) and nextTarget ~= currentTarget then
+						ply:SpectateEntity(nextTarget)
+					end
 				end
 			end
 		end
@@ -1117,7 +1178,7 @@ end
 				end
 
 				if target:Health() > 0 then
-					if target:IsPlayer() and jcms.team_JCorp_player(target) then
+					if target:IsPlayer() and jcms.team_JCorp_player(target) and jcms.team_pvpSameTeam(ent, target) then
 						local time = CurTime()
 						ent.jcms_friendlyFireCounter = (ent.jcms_friendlyFireCounter or 0) + 1
 						
@@ -1149,7 +1210,7 @@ end
 	end)
 	
 	function GM:PlayerCanPickupItem(ply, item)
-		return jcms.team_JCorp_player(ply) and item:IsPlayerHolding()
+		return jcms.team_JCorp_player(ply) and (item:IsPlayerHolding() or item.jcms_autoPickup)
 	end
 
 	function GM:PlayerCanPickupWeapon(ply, wep)
@@ -1281,7 +1342,7 @@ end
 			
 			jcms.playerspawn_Sweeper(ply, position, arg) -- arg: No Drop Pod
 		elseif mode == "npc" then
-			ply.jcms_lastLoadout = nil
+			--ply.jcms_lastLoadout = nil
 			ply:SetNWString("jcms_class", arg) -- arg: Player Class
 			jcms.playerspawn_NPC(ply, position)
 			ply.jcms_damageShare = {}
@@ -1323,13 +1384,23 @@ end
 							jcms.net_SendMissionEnding(d.victory, ply)
 						else
 							-- Handle the player according to their pre-rejoin session.
-							local state = jcms.director_stats_GetLockedState(d, ply)
+							local state, pvpTeam = jcms.director_stats_GetLockedState(d, ply)
 
 							if state == "sweeper" then
 								-- We've been here before. Now we're considered dead.
 								ply:SetNWInt("jcms_desiredteam", 1)
 								jcms.playerspawn_RespawnAs(ply, "spectator")
 								ply.jcms_lastDeathTime = CurTime()
+
+								if jcms.util_IsPVP() then
+									ply.jcms_isNPC = true
+
+									if (pvpTeam and pvpTeam > 0) then
+										ply:SetNWInt("jcms_pvpTeam", pvpTeam)
+									end
+								else
+									ply:SetNWInt("jcms_pvpTeam", -1)
+								end
 							elseif state == "evacuated" then
 								-- We've evacuated before. Now we're just spectating with the option to be an NPC.
 								ply:SetNWInt("jcms_desiredteam", 1)
@@ -1415,15 +1486,20 @@ end
 				jcms.director_stats_AddDeathForSweeper(ply)
 
 				if IsValid(attacker) and attacker:IsPlayer() then
-					if jcms.team_JCorp_player(attacker) and attacker ~= ply then
-						jcms.statistics_AddOther(attacker, "ffire", 1)
-						jcms.director_stats_AddKillForSweeper(attacker, 3)
-						if not jcms.playerData_IsPlayerLiability(ply) then
-							jcms.playerData_AddFriendlyKill(attacker)
+					if attacker ~= ply then
+						local samePVPTeam = jcms.team_pvpSameTeam(ply, attacker)
+						if jcms.team_JCorp_player(attacker) and samePVPTeam then
+							jcms.statistics_AddOther(attacker, "ffire", 1)
+							jcms.director_stats_AddKillForSweeper(attacker, 3)
+							if not jcms.playerData_IsPlayerLiability(ply) then
+								jcms.playerData_AddFriendlyKill(attacker)
+							end
+							jcms.announcer_Speak(jcms.ANNOUNCER_FRIENDLYFIRE_KILL)
+						elseif jcms.team_JCorp_player(ply) and not samePVPTeam then
+							jcms.director_stats_AddKillForSweeper(attacker, 4)
+						elseif jcms.team_NPC(attacker) then
+							jcms.director_stats_AddKillForNPC(attacker, 0)
 						end
-						jcms.announcer_Speak(jcms.ANNOUNCER_FRIENDLYFIRE_KILL)
-					elseif jcms.team_NPC(attacker) then
-						jcms.director_stats_AddKillForNPC(attacker, 0)
 					end
 				elseif (not game.SinglePlayer()) and (#jcms.GetAliveSweepers() >= 1) then
 					jcms.announcer_Speak(jcms.ANNOUNCER_DEAD)
@@ -1458,26 +1534,21 @@ end
 	end
 	
 	function GM:PlayerSetHandsModel(ply, ent)
-		if ply:Team() == 1 then
-			ent:SetModel("models/weapons/c_arms_combine.mdl")
-			ent:SetSubMaterial(0, "models/jcms/c_arms_jcorp")
+		local classData = jcms.class_GetData(ply)
+
+		if classData.handsModel then
+			ent:SetModel(classData.handsModel)
 		else
-			local classData = jcms.class_GetData(ply)
+			local info = player_manager.RunClass(ply, "GetHandsModel")
+			if not info then
+				local playermodel = player_manager.TranslateToPlayerModelName(ply:GetModel())
+				info = player_manager.TranslatePlayerHands(playermodel)
+			end
 
-			if classData.handsModel then
-				ent:SetModel(classData.handsModel)
-			else
-				local info = player_manager.RunClass(ply, "GetHandsModel")
-				if not info then
-					local playermodel = player_manager.TranslateToPlayerModelName(ply:GetModel())
-					info = player_manager.TranslatePlayerHands(playermodel)
-				end
-
-				if info then
-					ent:SetModel(info.model)
-					ent:SetSkin(info.matchBodySkin and ply:GetSkin() or info.skin)
-					ent:SetBodyGroups(info.body)
-				end
+			if info then
+				ent:SetModel(info.model)
+				ent:SetSkin(info.matchBodySkin and ply:GetSkin() or info.skin)
+				ent:SetBodyGroups(info.body)
 			end
 		end
 	end
@@ -1569,6 +1640,10 @@ end
 		ply:SetObserverMode(OBS_MODE_NONE)
 		ply:UnLock()
 		ply:GodDisable()
+		if jcms.util_IsPVP() then		
+			ply.jcms_isNPC = true
+			jcms.giveCash(ply, 100)
+		end
 
 		ply:SetNWBool("jcms_ready", false)
 		ply:SetTeam(1)
@@ -1593,24 +1668,28 @@ end
 					spawnpoints[ #spawnpoints ] = nil
 				else
 					local zone = jcms.mapdata.zoneList[jcms.mapdata.largestZone]
-					table.Shuffle(zone)
-					
+
+					local areaWeightsDropPod = {}
+					local areaWeightsTeleportIn = {}
+
 					for i, area in ipairs(zone) do
-						if not jcms.mapgen_ValidArea(area) then continue end 
-						if area:GetSizeX() < 128 or area:GetSizeY() < 128 then continue end
+						if area:IsUnderwater() then continue end
+						if area:IsDamaging() then continue end
+						local sx, sy = area:GetSizeX(), area:GetSizeY()
+						if sx < 100 or sy < 100 then continue end
 
-						local desiredSpawnPos = area:GetCenter() + area:GetRandomPoint()
-						desiredSpawnPos:Mul(0.5)
+						local randomSpot = jcms.mapgen_AreaPointAwayFromEdges(area, 50)
+						local skyPos, isSkyClear = jcms.util_GetSky(randomSpot)
 
-						local upVec = Vector(0,0,5)
-						local tr = util.TraceEntityHull({
-							start = desiredSpawnPos + upVec,
-							endpos = desiredSpawnPos + upVec
-						}, ply)
-						if tr.Hit then continue end 
-
-						spawnPos = desiredSpawnPos
+						if isSkyClear then
+							areaWeightsDropPod[randomSpot] = math.sqrt(sx * sy)
+						else
+							areaWeightsTeleportIn[randomSpot] = sx * sy
+						end
 					end
+					
+					local chosenLocation = jcms.util_ChooseByWeight(areaWeightsDropPod) or jcms.util_ChooseByWeight(areaWeightsTeleportIn)
+					spawnPos = chosenLocation or spawnPos
 				end
 			end
 		end
@@ -1619,6 +1698,7 @@ end
 		if skyPos and skyClear and (not noDropPod) then
 			local dropPod = ents.Create("jcms_droppod")
 			dropPod:Drop(ply, spawnPos, skyPos)
+			dropPod:SetNWInt("jcms_pvpTeam", ply:GetNWInt("jcms_pvpTeam", -1))
 			ply.jcms_dropTime = CurTime()
 		else
 			ply:SetPos(spawnPos)
@@ -1670,7 +1750,7 @@ end
 -- // }}}
 
 -- // Maps {{{
-	local map_blacklist = { --CSS and TF2 maps have navmeshes, but they're incompatible with gmod.
+	jcms.mapBlacklist = { --CSS and TF2 maps have navmeshes, but they're incompatible with gmod.
 		--CSS
 			["cs_assault"] = true,
 			["cs_compound"] = true,
@@ -1939,6 +2019,20 @@ end
 		["gm_coast_bridge_prewar"] = true
 	}
 
+
+	function jcms.blacklistMap(map)
+		jcms.mapBlacklist[map] = true
+		jcms.validMaps[map] = false
+	end
+	
+	concommand.Add("jcms_blacklistMap", function(ply, cmd, args)
+		if not(not ply:IsPlayer() or ply:IsAdmin()) then return end
+		
+		local map = tostring(args[1]) or ""
+		jcms.blacklistMap(map)
+	end, nil, "Manually blacklist an unplayable or broken map")
+
+
 	concommand.Add("jcms_addValidMap", function(ply, cmd, args)
 		if not(not ply:IsPlayer() or ply:IsAdmin()) then return end
 		
@@ -1948,6 +2042,7 @@ end
 
 	function jcms.addValidMap(map)
 		jcms.validMaps[map] = true
+		jcms.mapBlacklist[map] = false
 	end
 
 	function jcms.generateValidMapOptions()
@@ -1959,7 +2054,7 @@ end
 		for i, map in ipairs(maps) do
 			map = map:gsub("%.bsp", "")
 			if
-				not map_blacklist[map] and
+				not jcms.mapBlacklist[map] and
 				(jcms.validMaps[map] or --Known as valid
 				((map ~= game.GetMap()) --or detected as valid (unreliable)
 				and file.Exists("maps/" .. map .. ".nav", "GAME")
@@ -2163,6 +2258,33 @@ end
 		end
 	end, nil, "Instantly unlocks the terminal you're looking at.", FCVAR_CHEAT)
 	
+	concommand.Add("jcms_debug_quickreboot", function(ply, cmd, args)
+		if not ply:IsPlayer() or ply:IsAdmin() then
+			RunConsoleCommand("jcms_debug_enable", "0")
+			if args[1] then
+				RunConsoleCommand("jcms_mission", args[1])
+			end
+			
+			for i, ply in player.Iterator() do 
+				ply:ConCommand( "jcms_jointeam 1" )
+				ply:ConCommand( "jcms_ready" )
+				if jcms.util_IsPVP() then 
+					ply:ConCommand( "jcms_jointeam_pvp " .. tostring(math.random(1,2)) )
+				end
+			end
+
+			for i, bot in ipairs(player.GetBots()) do
+				bot:SetNWInt("jcms_desiredteam", 1)
+				bot:SetNWBool("jcms_ready", true)
+				if jcms.util_IsPVP() then 
+					bot:SetNWInt( "jcms_pvpTeam", math.random(1,2) )
+				end
+			end
+
+			--TODO: Tell director to teleport spawn us instead of using the droppod
+		end
+	end, nil, "End the mission and instantly boot into a new one", FCVAR_CHEAT)
+
 	concommand.Add("jcms_debug_enable", function(ply, cmd, args)
 		if not ply:IsPlayer() or ply:IsAdmin() then
 			if jcms.director then
@@ -2231,6 +2353,8 @@ end
 	end, nil, "Gives you a gravity gun", FCVAR_CHEAT)
 	
 	concommand.Add("jcms_ready", function(ply, cmd, args)
+		if jcms.pvp_vote_IsOngoing() then return end
+
 		if (ply:GetObserverMode() == OBS_MODE_FIXED) and ply:GetNWInt("jcms_desiredteam", 0) > 0 then
 			ply:SetNWBool("jcms_ready", not ply:GetNWBool("jcms_ready"))
 		else
@@ -2242,6 +2366,18 @@ end
 		if not jcms.director and (not ply:IsPlayer() or ply:IsAdmin()) then
 			-- TODO We can force-start the mission even if nobody is ready, which is going to start the mission without anyone at all.
 			jcms.mission_StartFromCVar()
+		end
+	end)
+
+	concommand.Add("jcms_setwinstreak", function(ply, cmd, args)
+		if (not ply:IsPlayer() or ply:IsAdmin()) then
+			local to = math.max(0, math.floor(tonumber(args[1]) or 0))
+
+			local rp = jcms.runprogress
+			rp.winstreak = to
+			rp.difficulty = jcms.runprogress_CalculateDifficultyFromWinstreak(rp.winstreak, rp.totalWins)
+			game.GetWorld():SetNWInt("jcms_winstreak", rp.winstreak)
+			game.GetWorld():SetNWInt("jcms_difficulty", rp.difficulty)
 		end
 	end)
 
@@ -2304,6 +2440,8 @@ end
 	end, nil, "Only works in-lobby. Randomizes pending mission type.")
 
 	concommand.Add("jcms_jointeam", function(ply, cmd, args)
+		if jcms.pvp_vote_IsOngoing() then return end
+
 		local restriction = jcms.cvar_npcteam_restrict:GetInt() -- 0: No restrictions, 1: Only post-evac, 2: Can never be an NPC
 		local canJoinNpcs = false
 		if restriction == 0 then
@@ -2311,16 +2449,25 @@ end
 		elseif restriction == 1 then
 			canJoinNpcs = jcms.director and jcms.director.evacuated[ply]
 		end
+
+		if jcms.util_IsPVP() then
+			canJoinNpcs = false -- Can't join NPCs if we're in PVP.
+		end
 		
 		local team = tonumber(args[1]) or tostring(args[1])
 
 		if ply:GetObserverMode() == OBS_MODE_FIXED then
+
 			if team == 0 or team == "none" then
 				-- Leaving the lobby is not as scary as it sounds
 				ply:SetNWInt("jcms_desiredteam", 0)
+				ply:SetNWInt("jcms_pvpTeam", -1)
 			elseif team == 1 or team == "sweeper" or team == "jcorp" then
 				-- Sweeper
 				ply:SetNWInt("jcms_desiredteam", 1)
+				if jcms.util_IsPVP() and not jcms.pvp_IsGoodTeamId(ply:GetNWInt("jcms_pvpTeam", -1)) then
+					ply:SetNWInt("jcms_pvpTeam", math.random(1, 2))
+				end
 			elseif canJoinNpcs and not game.SinglePlayer() then
 				if team == 2 or team == "npc" or team == "enemy" then
 					-- NPC
@@ -2331,8 +2478,7 @@ end
 		
 		if jcms.director and not game.SinglePlayer() then
 			if (ply:GetObserverMode() == OBS_MODE_CHASE) or (ply:GetObserverMode() == OBS_MODE_NONE and not ply:Alive()) then
-				
-			if canJoinNpcs and (team == 2 or team == "npc" or team == "enemy") and (ply:GetNWInt("jcms_desiredteam", 0) < 2) then
+				if canJoinNpcs and (team == 2 or team == "npc" or team == "enemy") and (ply:GetNWInt("jcms_desiredteam", 0) < 2) then
 					ply.jcms_classAtEvac = ply:GetNWString("jcms_class", "infantry")
 					ply:SetNWInt("jcms_desiredteam", 2)
 					ply:SetNWString("jcms_class", jcms.npc_PickPlayerNPCClass(jcms.director.faction))
@@ -2359,7 +2505,49 @@ end
 
 		end
 	end)
-	
+
+	concommand.Add("jcms_jointeam_pvp", function(ply, cmd, args)
+		if jcms.pvp_vote_IsOngoing() then return end
+		if (jcms.director and ply:GetNWInt("jcms_pvpTeam", -1) ~= -1) then return end
+
+		if jcms.util_IsPVP() then
+			local teamId = tonumber(args[1])
+			local autobalance = jcms.cvar_pvpautobalance:GetInt()
+			
+			local populations = { [1] = 0, [2] = 0 }
+			for i, oply in ipairs( player.GetAll() ) do
+				local oplyTeamId = oply:GetNWInt("jcms_pvpTeam", -1)
+				if oplyTeamId > 0 then
+					populations[ oplyTeamId ] = (populations[ oplyTeamId ] or 0) + 1
+				end
+			end
+
+			local lowest = math.huge
+			for id, count in pairs(populations) do
+				lowest = math.min(lowest, count)
+			end
+
+			if autobalance == 2 then
+				-- Automatically assign player to team with least players
+				local options = {}
+
+				for id, count in pairs(populations) do
+					if count == lowest then
+						table.insert(options, id)
+					end
+				end
+
+				teamId = options[ math.random(1, #options) ]
+			end
+
+			if jcms.pvp_IsGoodTeamId(teamId)
+			and ((autobalance == 0) or (not populations[teamId] or populations[teamId] == lowest)) then
+				ply:SetNWInt("jcms_pvpTeam", teamId)
+				ply:ConCommand("jcms_jointeam 1")
+			end
+		end
+	end)
+
 	concommand.Add("jcms_setclass", function(ply, cmd, args)
 		if (ply:GetObserverMode() == OBS_MODE_FIXED) or (ply:GetObserverMode() == OBS_MODE_CHASE) then
 			local classData = jcms.classes[ args[1] ]
@@ -2485,6 +2673,7 @@ end
 	end)
 
 	concommand.Add("jcms_setorderdetails", function(ply, cmd, args)
+		--Format: order, cost, cooldown
 		if not ply:IsPlayer() or ply:IsAdmin() then
 			local class = tostring(args[1])
 			local orderData = jcms.orders[class]
@@ -2517,6 +2706,161 @@ end
 			end
 		else
 			print(ply:Nick() .. ", this command is admin only")
+		end
+	end)
+	
+	concommand.Add("jcms_pvptoggle", function(ply, cmd, args)
+		if game.SinglePlayer() then
+			jcms.printf("You must be in Multiplayer")
+			return
+		end
+
+		if not ply:IsPlayer() or ply:IsAdmin() then
+			local newState = not game.GetWorld():GetNWBool("jcms_pvpmode", false)
+			jcms.pvp_SetEnabled(newState)
+		end
+	end)
+
+-- // }}}
+
+-- // PVP {{{
+
+	function jcms.pvp_SetEnabled(state)
+		for i, ply in player.Iterator() do
+			ply:SetNWBool("jcms_ready", false)
+			ply:SetNWInt("jcms_desiredteam", 0)
+			ply:SetNWInt("jcms_pvpTeam", -1)
+		end
+
+		if state and jcms.cvar_pvpautobalance:GetInt() == 2 then
+			-- Randomly assign each player to a team
+			local players = player.GetAll()
+			table.Shuffle(players)
+
+			for i, ply in ipairs(players) do
+				ply:SetNWInt("jcms_pvpTeam", i%2 + 1)
+			end
+		end
+
+		game.GetWorld():SetNWBool("jcms_pvpmode", state)
+		jcms.printf("PVP Mode: " .. (state and "On" or "Off"))
+
+		jcms.runprogress_UpdateAllPlayers()
+		game.GetWorld():SetNWInt("jcms_winstreak", state and 0 or jcms.runprogress.winstreak)
+		game.GetWorld():SetNWInt("jcms_difficulty", state and 1 or jcms.runprogress.difficulty)
+
+		jcms.mission_Randomize()
+	end
+
+	function jcms.pvp_StartVote(time)
+		local vote = jcms.pvp_vote
+
+		vote.endsAt = math.ceil( CurTime() + time )
+		table.Empty( vote.yes )
+		table.Empty( vote.no )
+		table.Empty( vote.any )
+		vote.processed = false
+
+		for i, ply in ipairs( player.GetAll() ) do
+			ply:SetNWInt("jcms_desiredteam", 0)
+			ply:SetNWInt("jcms_pvpTeam", -1)
+			ply:SetNWBool("jcms_ready", false)
+		end
+
+		jcms.net_SendPVPVoteStart()
+	end
+
+	function jcms.pvp_EndAndProcessVote()
+		local vote = jcms.pvp_vote
+		vote.processed = true
+		vote.endsAt = CurTime()
+		jcms.net_SendEndPVPVote()
+		
+		local yesCount, noCount, anyCount = #vote.yes, #vote.no, #vote.any
+
+		if yesCount == 0 and noCount == 0 and anyCount >= 1 then
+			return
+		end
+		
+		local approvalRatio
+		if (yesCount + noCount == 0) then
+			approvalRatio = 0
+		else
+			approvalRatio = yesCount / (yesCount + noCount)
+		end
+
+		if approvalRatio >= 0.75 then
+			jcms.pvp_SetEnabled(true)
+			
+			if jcms.cvar_pvpautobalance:GetInt() == 2 then
+				-- Randomly assign each player to a team
+				local players = player.GetAll()
+				table.Shuffle(players)
+
+				for i, ply in ipairs(players) do
+					ply:SetNWInt("jcms_pvpTeam", i%2 + 1)
+					ply:SetNWInt("jcms_desiredteam", 1)
+				end
+			end
+		else
+			jcms.pvp_SetEnabled(false)
+		end
+	end
+	
+	hook.Add("PlayerDisconnected", "jcms_PVPDisconnectHandling", function(ply)
+		if jcms.pvp_vote_IsOngoing() then
+			jcms.pvp_vote_InsertPlayerByOption(ply, 3)
+			jcms.net_SendPlayerPVPVote(ply, 3)
+		end
+
+		if not jcms.director and jcms.cvar_pvpallowed:GetInt() == 1 then -- Disabling PVP in lobby if 1 person remains
+			local newPlayerCount = player.GetCount() - 1
+			if newPlayerCount <= 1 and jcms.util_IsPVP() then
+				jcms.pvp_SetEnabled(false)
+			end
+		end
+	end)
+
+	hook.Add("Think", "jcms_VoteLogic", function()
+		local vote = jcms.pvp_vote
+		if vote.processed or vote.endsAt == 0 then return end
+		
+		if not jcms.util_IsPVPAllowed() or (jcms.cvar_pvpallowed:GetInt() ~= 1) then
+			vote.processed = true
+			vote.endsAt = CurTime()
+			jcms.net_SendEndPVPVote()
+			return
+		end
+		
+		local shouldProcess = false
+
+		if jcms.pvp_vote_IsOngoing() then
+			local plyTotal = player.GetCount()
+			local yesCount, noCount, anyCount = #vote.yes, #vote.no, #vote.any
+
+			if (yesCount + noCount + anyCount == plyTotal) then
+				shouldProcess = true
+			end
+		else
+			shouldProcess = true
+		end
+
+		if shouldProcess then
+			jcms.printf("Processing PVP vote...")
+			jcms.pvp_EndAndProcessVote()
+		end
+	end)
+
+	hook.Add("jcms_PlayerNetReady", "jcms_RelayVote", function(ply)
+		if jcms.pvp_vote_IsOngoing() then
+			local vote = jcms.pvp_vote
+
+			jcms.net_SendPVPVoteStart(ply)
+			for i, tbl in ipairs { vote.yes, vote.no, vote.any } do
+				for j, voter in ipairs(tbl) do
+					jcms.net_SendPlayerPVPVote(voter, i - 1, ply)
+				end
+			end
 		end
 	end)
 
@@ -2742,7 +3086,9 @@ end
 							end
 						end
 						
-					jcms.printf("Loaded weapon prices from '%s'.", weaponPricesFile)
+						jcms.printf("Loaded weapon prices from '%s'.", weaponPricesFile)
+					else
+						jcms.printf("FAILED to load weapon prices from '%s'. Corrupted data.", weaponPricesFile)
 					end
 				end
 			end
@@ -2763,16 +3109,11 @@ end
 					if jcms.weapon_prices[ class ] then continue end
 					
 					local success, rtn = pcall(jcms.gunstats_GetExpensive, class)
-					local stats
-					if not success then
-						jcms.printf("Weapon: '%s' caused an error/contains garbage data.", class)
-						ErrorNoHaltWithStack(rtn)
+					if success and type(rtn) == "table" then
+						jcms.weapon_prices[ class ] = jcms.gunstats_CalcWeaponPrice(rtn)
 					else
-						stats = rtn
-					end
-
-					if stats then
-						jcms.weapon_prices[ class ] = jcms.gunstats_CalcWeaponPrice(stats)
+						jcms.printf("Weapon: '%s' caused an error/contains garbage data.", class)
+						jcms.weapon_prices[ class ] = 0
 					end
 				end
 			end
@@ -2828,7 +3169,7 @@ end
 		end
 	end
 
-	function jcms.util_UnHack(ent)
+	function jcms.util_UnHack(ent, ply)
 		ent:SetHackedByRebels(false)
 		ent:EmitSound("weapons/stunstick/alyx_stunner" .. math.random(1,2) .. ".wav", 75, 200)
 
@@ -2846,6 +3187,10 @@ end
 			ent.NextSlowThink = CurTime() - 0.1
 			ent:TurretSlowThink()
 		end
+
+		ent.jcms_owner = ((IsValid(ent.jcms_owner) and jcms.team_SameTeam(ent.jcms_owner, ply)) and ent.jcms_owner) or ply
+		ent:SetNWInt("jcms_pvpTeam", ply:GetNWInt("jcms_pvpTeam", -1))
+		jcms.util_TryUpdateForPVP(ent)
 	end
 
 	function jcms_util_shieldDamageEffect(dmginfo, shieldDmg)
@@ -2870,6 +3215,89 @@ end
 		ed:SetNormal(normal)
 		ed:SetScale(Lerp(1 - 4/(shieldDmg+4), 0.5, 1.3) + math.random()*0.2 + addedScale)
 		util.Effect("jcms_shieldeffect", ed)
+	end
+
+	function jcms.util_skyNuke(pos)
+		local filter = RecipientFilter()
+		filter:AddAllPlayers()
+
+		local alarm = CreateSound(game.GetWorld(), "ambient/levels/outland/basealarmloop.wav", filter)
+		alarm:SetSoundLevel(0)
+		alarm:Play()
+
+		timer.Simple(7.5, function()
+			alarm:Stop()
+		end)
+
+		timer.Simple(5, function()
+			-- // Incoming sounds{{{
+				local dummy = ents.Create("prop_physics") --This is fucking stupid but I can't put csoundpatches in arbitrary locations without an ent.
+				dummy:SetPos(jcms.util_GetSky(pos) or pos)
+				dummy:SetModel("models/hunter/plates/plate.mdl")
+				dummy:Spawn()
+				dummy:PhysicsInitStatic(SOLID_NONE)
+
+				local incoming1 = CreateSound(dummy, "ambient/levels/outland/forklift_down_up_loop.wav", filter)
+				incoming1:SetSoundLevel(140)
+				incoming1:PlayEx(0,150)
+				timer.Simple(1.5, function()
+					incoming1:ChangeVolume(0.2, 6)
+					incoming1:ChangePitch(250, 8)
+				end)
+
+				local incoming2 = CreateSound(dummy, "ambient/levels/labs/teleport_mechanism_windup5.wav", filter)
+				incoming2:SetSoundLevel(140)
+				incoming2:PlayEx(0,100)
+				incoming2:ChangeVolume(1, 3)
+				timer.Simple(SoundDuration("ambient/levels/labs/teleport_mechanism_windup5.wav"), function()
+					incoming1:Stop()
+					incoming2:Stop()
+
+					if IsValid(dummy) then
+						dummy:Remove()
+					end
+				end)
+			-- // }}}
+
+
+			timer.Simple(6.5, function()		--VFX
+				jcms.net_SendNuke(pos)
+			end)
+			timer.Simple(9.5, function()		--BLAST
+				if jcms.director_GetMissionTime() < 10 then return end --Hacky workaround to prevent us from leaking into the next mission
+
+				EmitSound( "ambient/explosions/explode_1.wav", Vector(0,0,0),0, CHAN_AUTO, 1, 0, 0, 100, 0, filter )
+
+				local ed = EffectData()
+				ed:SetOrigin(pos)
+				ed:SetFlags(6)
+				util.Effect("jcms_blast", ed)
+
+				local radSphere = ents.Create("jcms_radsphere")
+				radSphere:SetPos(pos)
+				radSphere:Spawn()
+				radSphere.Damage = 4
+				
+				local world = game.GetWorld()
+				util.BlastDamage(world, world, pos + jcms.vectorUp, 1500, 100)
+
+				if jcms.director then
+					jcms.director.nukesDropped = (jcms.director.nukesDropped or 0) + 1
+				end
+			end)
+			timer.Simple(9.55, function()		--POST / Ear-Ring
+				if jcms.director_GetMissionTime() < 10 then return end --Hacky workaround to prevent us from leaking into the next mission
+
+				for i, ply in player.Iterator() do
+					ply:SetDSP(35)
+					ply:ViewPunch( Angle(-3.5,math.Rand(0,0.1),math.Rand(0,0.1)) )
+				end
+				game.GetWorld():StopSound( "ambient/explosions/explode_1.wav" ) --we don't want the rumble after
+				EmitSound( "ambient/explosions/citadel_end_explosion1.wav", Vector(0,0,0),0, CHAN_AUTO, 1, 0, 0, 100, 0, filter )
+
+				util.ScreenShake( pos, 300, 40, 4.5, 32000, true, filter )
+			end)
+		end)
 	end
 
 -- // }}}
@@ -2945,6 +3373,25 @@ end
 		end)
 	end
 
+	do 
+		local blacklistFile = "mapsweepers/server/blacklistedMaps.json"
+		hook.Add("InitPostEntity", "jcms_RestoreBlacklistMaps", function()
+			if file.Exists(blacklistFile, "DATA") then
+				local dataTxt = file.Read(blacklistFile, "DATA")
+				local dataTbl = util.JSONToTable(dataTxt)
+
+				table.Merge(jcms.mapBlacklist, dataTbl, true)
+			end
+		end)
+
+		hook.Add("ShutDown", "jcms_SaveBlacklistMaps", function()
+			if not jcms.fullyLoaded then return end
+
+			local dataStr = util.TableToJSON(jcms.mapBlacklist)
+			file.Write(blacklistFile, dataStr)
+		end)
+	end
+
 -- // }}}
 
 -- // Post {{{
@@ -2966,6 +3413,31 @@ end
 			newcrate:SetAngles(oldcrate:GetAngles())
 			oldcrate:Remove()
 			newcrate:Spawn()
+		end
+	end
+
+	function jcms.DisableThumpers()
+		for i, thumper in ipairs(ents.FindByClass("prop_thumper")) do 
+			thumper:SetSaveValue("m_bEnabled", false)
+		end
+	end
+
+	function jcms.ClearTinyProps()
+		local function clearIfSmall(ent)
+			local mins, maxs = ent:OBBMins(), ent:OBBMaxs()
+			local bounds = maxs - mins
+			local x,y,z = bounds:Unpack()
+
+			if (x*y*z)^(1/3) < 25 then
+				ent:Remove()
+			end
+		end
+
+		for i, ent in ipairs(ents.FindByClass("prop_physics")) do 
+			clearIfSmall(ent)
+		end
+		for i, ent in ipairs(ents.FindByClass("prop_dynamic")) do 
+			clearIfSmall(ent)
 		end
 	end
 

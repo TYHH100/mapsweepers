@@ -23,7 +23,12 @@ class.orderIndex = 3
 jcms.class_Add("sentinel", class, true)
 
 -- Sentinel Armor
-class.mdl = "models/player/gasmask.mdl"
+class.mdl = "models/player/jcms/jcorp_sentinel.mdl"
+class.mdls_pvp = {
+	[1] = "models/player/jcms/jcorp_sentinel.mdl",
+	[2] = "models/player/jcms/mafia_sentinel.mdl"
+}
+
 class.footstepSfx = "NPC_CombineS.RunFootstep"
 
 class.health = 100
@@ -39,11 +44,6 @@ class.walkSpeed = 160
 class.runSpeed = 160
 class.boostedRunSpeed = 250
 class.disallowSprintAttacking = true
-
-class.matOverrides = { 
-	["models/cstrike/ct_sas"] = "models/jcms/player/sentinel",
-	["models/cstrike/ct_sas_glass"] = "jcms/jglow"
-}
 
 jcms.class_useNewSentinel = false
 
@@ -288,8 +288,6 @@ if SERVER then
 	end
 
 	function class.Think(ply)
-		if CLIENT then return end
-
 		if CurTime() - ply.sentinel_lastDmgBlocked < 2 then
 			if not(ply.sentinel_breathSound:IsPlaying()) then 
 				ply.sentinel_breathSound:PlayEx(1, 80)

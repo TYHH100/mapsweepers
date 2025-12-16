@@ -51,11 +51,11 @@
 	
 	jcms.missions = {}
 
-	function jcms.mission_GetRandomType(except)
+	function jcms.mission_GetRandomType(except, pvpOnly)
 		local keys = {}
 
 		for mission in pairs(jcms.missions) do
-			if mission ~= except then
+			if mission ~= except and not pvpOnly or ( jcms.missions[ mission ].pvpAllowed ) then
 				table.insert(keys, mission)
 			end
 		end
@@ -82,6 +82,10 @@
 			game.CleanUpMap()
 			jcms.RecolorAllDollies()
 			jcms.ReplaceAllCrates()
+			jcms.DisableThumpers()
+			if jcms.cvar_performanceMode:GetBool() then 
+				jcms.ClearTinyProps()
+			end
 			
 			game.GetWorld():SetNWString("jcms_missiontype", missionType)
 			game.GetWorld():SetNWString("jcms_missionfaction", factionType)
@@ -96,6 +100,31 @@
 				jcms.runprogress_SetLastMission()
 				jcms.director.fullyInited = true
 
+				if jcms.util_IsPVP() then
+					for teamId=1, 2 do
+						for i=1, math.ceil(player.GetCount()/2) do --TODO: jcms.util_getUsedTeams
+							jcms.director_InsertRespawnVector(jcms.director_PvpDynamicRespawn, teamId)
+						end
+					end
+
+					for k, order in pairs(jcms.orders) do
+						if order.pvpBlacklisted then
+							jcms.net_RemoveOrder(k)
+						elseif order.pvpExclusive then
+							jcms.net_SendOrder(k, order)
+						end
+					end
+				else
+					--Suboptimal, but this works I guess.
+					for k, order in pairs(jcms.orders) do
+						if order.pvpBlacklisted then
+							jcms.net_SendOrder(k, order)
+						elseif order.pvpExclusive then
+							jcms.net_RemoveOrder(k)
+						end
+					end
+				end
+				
 				-- // Mission-Specific Orders {{{
 					for k, order in pairs(jcms.orders) do 
 						if order.missionSpecific then 
@@ -130,6 +159,14 @@
 						end
 					end)
 				end
+				
+				-- timer.Simple(0.1, function()
+				-- 	if jcms.director then
+				-- 		local queue = jcms.director_MakeQueue(jcms.director, jcms.mapgen_AdjustCountForMapSize(5), jcms.NPC_DANGER_FODDER)
+				-- 		jcms.director_SpawnSwarm(jcms.director, queue, true)
+				-- 		jcms.printf("Spawning initial ambient NPCs. Count: %d", #queue)
+				-- 	end
+				-- end)
 			else
 				jcms.director = nil
 				ErrorNoHalt("Mission generation failed!\n"..tostring(genRtn))
@@ -138,17 +175,22 @@
 			end
 
 			game.GetWorld():SetNWFloat("jcms_mapgen_progress", 1)
+			game.GetWorld():SetNWFloat("jcms_missionStartTime", CurTime())
 			return true
 		end)
 
 		timer.Create( "jcms_mission_run", 0.01, 0, function()
 			local success, shouldEnd = coroutine.resume(co)
+			if not success then 
+				ErrorNoHalt(shouldEnd) --"shouldEnd" is actually the error string in this context, the variable's just named with the other case in-mind.
+			end
+
 			if shouldEnd then 
 				timer.Remove("jcms_mission_run")
 				game.GetWorld():SetNWFloat("jcms_mapgen_progress", 1)
 
 				game.GetWorld():SetNWFloat("jcms_difficulty", jcms.runprogress_GetDifficulty())
-				game.GetWorld():SetNWInt("jcms_winstreak", jcms.runprogress.winstreak)
+				game.GetWorld():SetNWInt("jcms_winstreak", jcms.util_IsPVP() and 0 or jcms.runprogress.winstreak)
 			end
 		end)
 	end
@@ -174,13 +216,28 @@
 		jcms.mission_Randomize()
 		jcms.mission_ResetStartTimer()
 		game.CleanUpMap()
+
+		local goodForPVP = jcms.util_IsPVPAllowed()
+		local pvpAllowed = jcms.cvar_pvpallowed:GetInt()
+
+		if pvpAllowed == 0 then
+			jcms.pvp_SetEnabled(false)
+		elseif pvpAllowed == 2 then
+			jcms.pvp_SetEnabled(true)
+		elseif pvpAllowed == 1 then
+			if goodForPVP then
+				jcms.pvp_StartVote(40)
+			elseif jcms.util_IsPVP() then
+				jcms.pvp_SetEnabled(false)
+			end
+		end
 	end
 
 	function jcms.mission_Randomize()
 		local lastMis, lastFac = jcms.runprogress_GetLastMissionTypes()
-		local newType = jcms.mission_GetRandomType( lastMis )
+		local newType = jcms.mission_GetRandomType( lastMis, jcms.util_IsPVP() )
 		local data = assert(jcms.missions[ newType ], "error randomizing mission type, picked an invalid one: '" .. tostring(newType) .. "'")
-		
+
 		game.GetWorld():SetNWString("jcms_missiontype", newType)
 		if data.faction == "any" then
 			local otherFactions = {}
@@ -248,7 +305,7 @@
 		return maps
 	end
 
-	function jcms.mission_End(victory)
+	function jcms.mission_End(victory, aliveTeams)
 		-- Voting {{{
 			jcms.director.votes = {}
 			
@@ -263,11 +320,17 @@
 
 		-- Sending info {{{
 			local postMissionStats = jcms.director_GetPostMissionStats()
-			jcms.net_SendMissionEnding(victory)
+			if jcms.util_IsPVP() then
+				for teamId, alive in ipairs(aliveTeams) do
+					jcms.net_SendMissionEnding(alive, nil, teamId)
+				end
+			else
+				jcms.net_SendMissionEnding(victory)
+			end
 		-- }}}
 
 		-- Rewards & Progress {{{
-			if victory and not jcms.serverExtension_forcedEvac then
+			if victory and not(jcms.serverExtension_forcedEvac or jcms.util_IsPVP()) then
 				jcms.runprogress_Victory()
 
 				for i, pd in ipairs( postMissionStats.players ) do
@@ -302,7 +365,7 @@
 						jcms.net_SendCashBonuses(ply, bonuses, oldStartingCash, newStartingCash)
 					end
 				end
-			elseif not(jcms.serverExtension_forcedEvac and victory) then
+			elseif not(jcms.serverExtension_forcedEvac and victory) and not jcms.util_IsPVP() then
 				for i, pd in ipairs( postMissionStats.players ) do
 					local sid64 = pd.sid64
 
@@ -328,6 +391,7 @@
 			for i, ply in ipairs(player.GetAll()) do
 				ply:SetNWInt("jcms_desiredteam", 0)
 				ply:SetNWBool("jcms_ready", false)
+				ply:SetNWInt("jcms_pvpTeam", -1)
 
 				if victory then
 					jcms.statistics_AddMissionStatus(ply, jcms.director.missionType, jcms.director.faction, true)
@@ -336,13 +400,15 @@
 		-- }}}
 
 		-- Announcer {{{
-			timer.Simple(2, function()
-				if victory then 
-					jcms.announcer_Speak(jcms.ANNOUNCER_VICTORY)
-				else
-					jcms.announcer_Speak(jcms.ANNOUNCER_FAILED)
-				end
-			end)
+			if not jcms.util_IsPVP() then
+				timer.Simple(2, function()
+					if victory then 
+						jcms.announcer_Speak(jcms.ANNOUNCER_VICTORY)
+					else
+						jcms.announcer_Speak(jcms.ANNOUNCER_FAILED)
+					end
+				end)
+			end
 		-- }}}
 		
 		jcms.serverExtension_forcedEvac = false
@@ -378,9 +444,13 @@
 							if ready then
 								jcms.playerspawn_RespawnAs(ply, "sweeper")
 								jcms.statistics_AddMissionStatus(ply, jcms.director.missionType, jcms.director.faction, false)
-								ply.jcms_isNPC = nil
+								if not jcms.util_IsPVP() then
+									ply.jcms_isNPC = nil
+								else
+									ply.jcms_isNPC = true
+								end
 
-								jcms.director_stats_SetLockedState(jcms.director, ply, "sweeper")
+								jcms.director_stats_SetLockedState(jcms.director, ply, "sweeper", ply:GetNWInt("jcms_pvpTeam", -1))
 								if jcms.director_GetMissionTime() > 8 then
 									jcms.net_SendRespawnEffect(ply)
 									jcms.announcer_Speak(jcms.ANNOUNCER_JOIN)
@@ -461,6 +531,20 @@
 	
 	function jcms.mission_GenerateEvacObjective()
 		local d = jcms.director
+		
+		if jcms.util_IsPVP() then
+			local missionData = d.missionData
+			if missionData and not missionData.evacTip then
+				jcms.net_SendTip("all", true, "#jcms.gotoevac_pvp", 1)
+				missionData.evacTip = 0
+			end
+
+			return {
+				{type = "j", 0,0},
+				{type = "die", 0,0}
+			}
+		end
+
 		local totalCount = 0
 		local evacCount = 0
 		local evacChargePercent = 1
@@ -546,7 +630,7 @@
 
 	function jcms.mission_DropEvac(pos, timeToWaitOverride)
 		local d = jcms.director
-		if d then
+		if d and not jcms.util_IsPVP() then
 			if IsValid(d.evacEnt) then
 				d.evacEnt:Remove()
 			end

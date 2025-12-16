@@ -50,7 +50,7 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 
 	function jcms.npc_GetScaledDamage(override)
 		local plyCount = override or #team.GetPlayers(1)
-		return (1 + math.max((plyCount-1) * 0.125, 0)) * jcms.runprogress_GetDifficulty()
+		return (1 + math.max((plyCount-1) * 0.125, 0)) * jcms.runprogress_GetDifficulty() * jcms.cvar_damage_mul:GetFloat()
 	end
 
 	function jcms.npc_GetScaledSwarmWeight(data) 
@@ -126,18 +126,22 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 		end
 	end
 
+	local v35 = Vector(0,0,20)
 	function jcms.npc_Spawn(enemyType, pos, fromPortal)
 		jcms.blockNPCTracker = true
+
 		local enemyData = assert(jcms.npc_types[ enemyType ], "invalid enemy type '" .. tostring(enemyType) .. "'")
-		
 		assert( isvector(pos), "supply a vector please" )
+		
 		local npc = ents.Create(enemyData.class)
 		if not IsValid(npc) then return NULL end
+
 		local npcTbl = npc:GetTable()
 		npcTbl.jcms_fromPortal = fromPortal
 		
 		npc:SetAngles( Angle(0, math.random() * 360, 0) )
-		
+		npc:SetPos(pos + v35)
+
 		if enemyData.preSpawn then 
 			enemyData.preSpawn(npc, pos, enemyData) 
 		end
@@ -155,18 +159,17 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 		end
 
 		if npc.SetMaxLookDistance then
-			npc:SetMaxLookDistance( math.max(npc:GetMaxLookDistance(), 4096) )
+			npc:SetMaxLookDistance( math.max(npc:GetMaxLookDistance(), 3400) )
 		end
 
-		local v35 = Vector(0,0,20)
-		npc:SetPos(pos + v35)
-
-		local hulltrace = util.TraceEntityHull({
-			start = npc:EyePos(),
-			endpos = pos + ((enemyData.isStatic and jcms.vectorOrigin) or v35),
-			mask = MASK_NPCSOLID_BRUSHONLY
-		}, npc)
-		npc:SetPos(hulltrace.HitPos)
+		if not enemyData.isStatic and not enemyData.hullSize then
+			local hulltrace = util.TraceEntityHull({
+				start = npc:EyePos(),
+				endpos = pos + v35,
+				mask = MASK_NPCSOLID_BRUSHONLY
+			}, npc)
+			npc:SetPos(hulltrace.HitPos)
+		end
 		
 		--debugoverlay.Line(hulltrace.StartPos, hulltrace.HitPos, 1, Color(255, 0, 0), true)
 		--debugoverlay.Box(hulltrace.HitPos, npc:OBBMins(), npc:OBBMaxs(), 1, Color(255, 0, 0), true)
@@ -229,6 +232,7 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 			local squadName = string.format("%s%x", enemyData.faction, jcms.npc_GetAndIncrementSquadIndex())
 			npc:SetSquad(squadName)
 			npc:CapabilitiesAdd(bit.bor(CAP_MOVE_JUMP, CAP_USE, CAP_AUTO_DOORS, CAP_OPEN_DOORS))
+			--npc:SetKeyValue("sleepstate", 2)
 		end
 		
 		jcms.npc_UpdateRelations(npc)
@@ -252,14 +256,16 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 		local colorInteger = jcms.factions_GetColorInteger(enemyData.faction)
 
 		if not noeffect then
-			local ed = EffectData()
-			ed:SetColor(colorInteger)
-			ed:SetFlags(1)
-			ed:SetOrigin(pos + Vector(0, 0, -40))
-			ed:SetStart(pos + Vector(0, 0, 40))
-			ed:SetMagnitude(delay)
-			ed:SetScale(enemyData.portalScale or 1)
-			util.Effect("jcms_spawneffect", ed)
+			jcms.npc_SpawneffectInsert(colorInteger, pos, delay, enemyData.portalScale or 1)
+
+			-- local ed = EffectData()
+			-- ed:SetColor(colorInteger)
+			-- ed:SetFlags(1)
+			-- ed:SetOrigin(pos + Vector(0, 0, -40))
+			-- ed:SetStart(pos + Vector(0, 0, 40))
+			-- ed:SetMagnitude(delay)
+			-- ed:SetScale(enemyData.portalScale or 1)
+			-- util.Effect("jcms_spawneffect", ed)
 		end
 		
 		local time = CurTime()
@@ -413,7 +419,50 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 		end)
 	end
 
--- }}}
+-- // }}}
+
+-- // Spawneffect Buffer {{{
+
+	-- For networking a group of NPC pre-spawn effects
+	-- This fixes the issue of effects disappearing on lag, which is horribly annoying on servers.
+
+	jcms.npc_spawneffectBuffer = {}
+
+	function jcms.npc_SpawneffectCategorize(colorInt, pos, delay, scale)
+		local category = tostring(colorInt) .. " " .. tostring(scale)
+		
+		local categoryFinal = category
+		local i = 0
+
+		while jcms.npc_spawneffectBuffer[ categoryFinal ] and #jcms.npc_spawneffectBuffer[ categoryFinal ] > 63 do
+			i = i + 1
+			categoryFinal = category .. " " .. i
+		end
+
+		return categoryFinal
+	end
+
+	function jcms.npc_SpawneffectInsert(colorInt, pos, delay, scale)
+		local category = jcms.npc_SpawneffectCategorize(colorInt, pos, delay, scale)
+		
+		if not jcms.npc_spawneffectBuffer[category] then
+			jcms.npc_spawneffectBuffer[category] = {
+				colorInt = colorInt,
+				scale = scale
+			}
+		end
+
+		table.insert(jcms.npc_spawneffectBuffer[category], { pos, delay })
+	end
+
+	hook.Add("Think", "jcms_processSpawneffects", function()
+		for key, category in pairs(jcms.npc_spawneffectBuffer) do
+			jcms.net_SendNPCSpawnEffects(category)
+			jcms.npc_spawneffectBuffer[ key ] = nil
+		end
+	end)
+
+-- // }}}
 
 -- // NPC Utility/Helper functions {{{
 
@@ -457,6 +506,7 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 	end
 
 	function jcms.npc_SetupSweeperShields(npc, max, regen, regenDelay, col)
+		if not IsValid(npc) or npc.jcms_noSweeperShields then return end
 		local colInt = (type(col)=="number" and col) or (IsColor(col) and jcms.util_ColorInteger(col)) or 255
 
 		npc:SetNWInt("jcms_sweeperShield", max)
@@ -514,6 +564,11 @@ jcms.npcSquadSize = 4 -- Let's see if smaller squads fix their strange behavior.
 
 				if nearestNode then 
 					v = nearestNode.pos
+				end
+			elseif npcData.hullSize then 
+				local nearestNode = jcms.pathfinder_ain_nearestHullNode(v, npcData.hullSize)
+				if nearestNode then 
+					v = ainReader.nodePositions[nearestNode]
 				end
 			end
 

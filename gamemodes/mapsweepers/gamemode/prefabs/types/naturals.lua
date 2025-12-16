@@ -21,43 +21,6 @@
 
 local prefabs = jcms.prefabs
 
--- // Critical / Always spawns {{{
-	prefabs.shop = {
-		natural = true,
-		weight = 9999999,
-		limit = function()
-			return (jcms.runprogress_GetDifficulty() <= 0.9 and 2) or 1 
-		end,
-		limitMulBySize = true,
-		onlyMainZone = true,
-
-		check = function(area)
-			if not jcms.mapgen_ValidArea(area) then return false end
-
-			local wallspots, normals = jcms.prefab_GetWallSpotsFromArea(area, 48, 128)
-			
-			if #wallspots > 0 then
-				local rng = math.random(#wallspots)
-				return true, { pos = wallspots[rng], normal = normals[rng] }
-			else
-				return false
-			end
-		end,
-
-		stamp = function(area, data)
-			local ent = ents.Create("jcms_shop")
-			if not IsValid(ent) then return end
-
-			data.pos = data.pos + data.normal * 14
-			ent:SetPos(data.pos)
-			ent:DropToFloor()
-			ent:SetAngles(data.normal:Angle())
-			ent:Spawn()
-			return ent
-		end
-	}
--- // }}}
-
 -- // Ambient prefabs {{{
 	prefabs.wall_charger = {
 		natural = true,
@@ -216,11 +179,7 @@ local prefabs = jcms.prefabs
 		weight = 0.11,
 
 		check = function(area)
-			if not jcms.mapgen_ValidArea(area) then return false end
-			local c1, c2, c3, c4 = area:GetCorner(1), area:GetCorner(2), area:GetCorner(3), area:GetCorner(0)
-			if math.max(c1.z, c2.z, c3.z, c4.z) - math.min(c1.z, c2.z, c3.z, c4.z) > 34 then
-				return false
-			end
+			if not jcms.mapgen_ValidArea(area) or not jcms.mapgen_AreaFlat(area) then return false end
 
 			local wallspots, normals = jcms.prefab_GetWallSpotsFromArea(area, 48, 128)
 			
@@ -251,6 +210,18 @@ local prefabs = jcms.prefabs
 
 		check = function(area)
 			if not jcms.mapgen_ValidArea(area) then return false end
+
+			if ( area:GetSizeX()*area:GetSizeY() ) <= 60000 then
+				return false
+			end
+
+			if #area:GetVisibleAreas() < jcms.mapgen_GetVisData().avg then
+				return false
+			end
+			
+			if not jcms.mapgen_AreaFlat(area) then 
+				return false 
+			end
 
 			return jcms.prefab_CheckOverlooking(area)
 		end,
@@ -433,7 +404,7 @@ local prefabs = jcms.prefabs
 
 			function ent:DoPostRespawnEffect(ply)
 				local ed = EffectData()
-				ed:SetColor(jcms.util_colorIntegerJCorp)
+				ed:SetColor(jcms.util_GetColorIntegerPvP(ply))
 				ed:SetFlags(0)
 				ed:SetEntity(ply)
 				util.Effect("jcms_spawneffect", ed)
@@ -473,8 +444,7 @@ local prefabs = jcms.prefabs
 			if not IsValid(ent) then return end
 
 			ent:Spawn()
-			ent:SetColor(Color(87, 83, 34))
-			ent:InitAsTerminal("models/props/de_nuke/nuclearcontrolbox.mdl", "gunlocker")
+			ent:InitAsTerminal("models/jcms/mafia_locker.mdl", "gunlocker")
 			ent:SetPos(data.pos)
 			ent:SetAngles(data.normal:Angle())
 

@@ -35,12 +35,12 @@ ENT.ChainSteps = 14
 ENT.FireRate = 0.4
 
 ENT.SentinelAnchor = true
+ENT.JCMS_Stunnable = true
 
 function ENT:Initialize()
 	if SERVER then
 		self:SetModel("models/props_c17/utilityconnecter006c.mdl")
 		self:SetMaterial("models/props_combine/metal_combinebridge001")
-		self:SetColor(Color(255, 32, 32))
 		self:PhysicsInitStatic(SOLID_VPHYSICS)
 		
 		self:SetMaxHealth(35)
@@ -49,7 +49,17 @@ function ENT:Initialize()
 		self.nextAttack = CurTime()
 	end
 
-	self.hackStunEnd = CurTime()
+	self.jcms_stunEnd = CurTime()
+end
+
+function ENT:UpdateForFaction(faction)
+	if faction == "rgg" then
+		self:SetColor( Color(162, 81, 255) )
+	elseif faction == "mafia" then
+		self:SetColor( Color(241, 212, 14) )
+	else
+		self:SetColor( Color(255, 32, 32) )
+	end
 end
 
 function ENT:SetupDataTables()
@@ -57,12 +67,11 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Bool", 0, "HackedByRebels")
 	self:SetHealthFraction(1)
 	self:NetworkVarNotify("HackedByRebels", function(ent, name, old, new )
-		if new then 
-			self:SetColor(Color(162, 81, 255))
-			self.hackStunEnd = CurTime() + 2.5
-		else
-			self:SetColor(Color(255, 32, 32))
+		if new then
+			self.jcms_stunEnd = CurTime() + 2.5
 		end
+
+		self:UpdateForFaction(new and "rgg" or jcms.util_GetFactionNamePVP(ent))
 	end)
 end
 
@@ -80,17 +89,20 @@ if SERVER then
 		effectdata:SetEntity(target)
 		util.Effect("TeslaHitboxes", effectdata)
 	end
-
+	
 	function ENT:Think()
 		if self:Health() > 0 then
+			local selfTbl = self:GetTable()
 			local cTime = CurTime()
-			if self.nextAttack <= cTime and (self.hackStunEnd < CurTime() or not self:GetHackedByRebels()) then
+			if selfTbl.nextAttack <= cTime and (selfTbl.jcms_stunEnd < CurTime() or not self:GetHackedByRebels()) then
 				local selfPos = self:GetPos()
 
-				local targets = ents.FindInSphere(selfPos, self.Radius)
+				local isHacked = selfTbl:GetHackedByRebels()
+				local selfPvpTeam = self:GetNWInt("jcms_pvpTeam", -1)
+				local targets = ents.FindInSphere(selfPos, selfTbl.Radius)
 				local finalTargets = {}
 				for i, ent in ipairs(targets) do 
-					if jcms.team_GoodTarget(ent) and jcms.turret_IsDifferentTeam(self, ent) and self:TurretVisible(ent) then
+					if jcms.team_GoodTarget(ent) and jcms.turret_IsDifferentTeam_Optimised(isHacked, ent, selfPvpTeam) and self:TurretVisible(ent) then
 						table.insert(finalTargets, ent)
 					end
 				end
@@ -104,7 +116,7 @@ if SERVER then
 					self:Zap(best)
 				end
 
-				self.nextAttack = cTime + self.FireRate
+				selfTbl.nextAttack = cTime + selfTbl.FireRate
 			end
 		else
 			local pos = self:WorldSpaceCenter()
@@ -224,7 +236,7 @@ if SERVER then
 		if self:GetHackedByRebels() then
 			local inflictor, attacker = dmg:GetInflictor(), dmg:GetAttacker()
 			if IsValid(inflictor) and jcms.util_IsStunstick(inflictor) and jcms.team_JCorp(attacker) then --UnHack
-				jcms.util_UnHack(self)
+				jcms.util_UnHack(self, attacker)
 				return 0
 			end
 
@@ -234,6 +246,30 @@ if SERVER then
 			return 0
 		end
 	end
+
+	function ENT:BreakByBreach(forceVector)
+		self.Radius = 0
+		
+        self:EmitSound("physics/metal/metal_box_break2.wav", 80, 103)
+        self:PhysicsInit(SOLID_VPHYSICS)
+        self:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
+        local physObj = self:GetPhysicsObject()
+        if IsValid(physObj) and forceVector then
+            physObj:SetVelocity( forceVector )
+        end
+
+        timer.Simple(2.75, function()
+            if IsValid(self) then
+                self:SetModelScale(0, 0.25)
+            end
+        end)
+
+        timer.Simple(3, function()
+            if IsValid(self) then
+                self:Remove()
+            end
+        end)
+    end
 end
 
 if CLIENT then

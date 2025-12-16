@@ -210,6 +210,10 @@ jcms.npc_commanders["zombie"] = {
 					npc:Remove()
 					--We replace the old npc ref with the new one for the effect.
 					npc = jcms.npc_Spawn(upgrade, npc:GetPos())
+
+					if upgrade == "zombie_minitank" then 
+						npc.bounty = 45 --Keep the old cost for flashpoint ones, they're meant to be a hinderance.
+					end
 				end
 
 				local ed = EffectData()
@@ -269,12 +273,18 @@ jcms.npc_commanders["zombie"] = {
 	end, 
 
 	placePrefabs = function(c, data)
-		--Place extra respawn chambers		
-		local function weightOverride(name, ogWeight)
-			return ((name == "respawn_chamber") and 1) or 0
+		--Place extra respawn chambers
+		if data.faction == "zombie" then --We can potentially be called on non-zombie missions now.
+			local function weightOverride(name, ogWeight)
+				return ((name == "respawn_chamber") and 1) or 0
+			end
+
+			jcms.mapgen_PlaceNaturals(jcms.mapgen_AdjustCountForMapSize( 2 + math.ceil(1.5 * #jcms.GetLobbySweepers())), weightOverride)
 		end
 
-		jcms.mapgen_PlaceNaturals(jcms.mapgen_AdjustCountForMapSize( 2 + math.ceil(1.5 * #jcms.GetLobbySweepers())), weightOverride)
+		--Faction prefabs
+		local count = math.ceil(jcms.mapgen_AdjustCountForMapSize( 4 ) * jcms.runprogress_GetDifficulty())
+		jcms.mapgen_PlaceFactionPrefabs(count, "zombie")
 	end
 }
 
@@ -549,7 +559,7 @@ jcms.npc_types.zombie_minitank = {
     swarmWeight = 0.0000000001, --0.3,
 
 	class = "npc_poisonzombie",
-	bounty = 45,
+	bounty = 225, --If the match has gone on this long it's honestly probably a good idea to just start giving people more cash.
 
 	preSpawn = function(npc)
 		npc:SetSaveValue("m_nCrabCount", 0)
@@ -729,7 +739,7 @@ jcms.npc_types.zombie_combine = {
 	bounty = 40,
 
 	postSpawn = function(npc)
-		local hp = math.ceil(npc:GetMaxHealth()*1.75)
+		local hp = math.ceil(npc:GetMaxHealth()*1.5)
 		npc:SetMaxHealth(hp)
 		npc:SetHealth(hp)
 	end,
@@ -740,7 +750,21 @@ jcms.npc_types.zombie_combine = {
 		if #jcms.GetSweepersInRange(npc:GetPos(), 600) > 0 then return end
 		npc:Fire("StartSprint") --Force us to run until we're closer.
 	end,
-	
+
+	takeDamage = function(npc, dmg)
+		timer.Simple(0, function()
+			if IsValid(npc) then
+				for i, ent in ipairs(ents.FindInSphere(npc:GetAttachment( 8 ).Pos, 1)) do --8 = Grenade attach pos
+					if ent:GetClass() == "npc_grenade_frag" then
+						if not IsValid(ent:GetParent()) then --Don't apply if we're still in-hand
+							ent:SetSaveValue("m_flDetonateTime", 2.5) --Additional grace
+						end
+					end
+				end
+			end
+		end)
+	end,
+
 	damageEffect = function(npc, target, dmgInfo)
 		if dmgInfo:IsDamageType( DMG_BLAST, DMG_BLAST_SURFACE ) then 
 			return --Don't buff grenade damage
@@ -804,7 +828,9 @@ jcms.npc_types.zombie_spawner = {
 	swarmWeight = 1,
 
 	class = "npc_jcms_zombiespawner",
-	bounty = 250,
+	bounty = 350,
+	
+	isStatic = true, 
 
 	postSpawn = function(npc)
 		-- // If our space is clear return early {{{
@@ -825,7 +851,7 @@ jcms.npc_types.zombie_spawner = {
 			table.insert(positions, v:GetPos())
 		end
 
-		local validZones = jcms.director_GetAreasAwayFrom(jcms.mapgen_ZoneList()[jcms.mapdata.largestZone], positions, 1000, math.huge)
+		local validZones = jcms.director_GetAreasAwayFrom(jcms.mapgen_MainZone(), positions, 1000, math.huge)
 		if #validZones == 0 then return end
 		table.Shuffle(validZones)
 
@@ -847,11 +873,11 @@ jcms.npc_types.zombie_charple = {
 	faction = "zombie",
 
 	danger = jcms.NPC_DANGER_FODDER,
-    cost = 0.2,
-    swarmWeight = 0.0000001,
+	cost = 0.2,
+	swarmWeight = 0.0000001,
 
 	class = "npc_fastzombie",
-	bounty = 20,
+	bounty = 22,
 
 	postSpawn = function(npc)
 		npc:SetBodygroup( 1, 0 ) --Remove our headcrab
@@ -943,4 +969,49 @@ jcms.npc_types.zombie_charple = {
 			end
 		end)
 	end
+}
+
+jcms.npc_types.zombie_barnacle = {
+	faction = "zombie",
+
+	danger = jcms.NPC_DANGER_FODDER,
+	cost = 0.2,
+	swarmWeight = 0.0000001,
+
+	class = "npc_barnacle",
+	bounty = 20,
+
+	anonymous = true,
+	isStatic = true, 
+
+	preSpawn = function(npc)
+		-- Stick us to the ceiling
+		local tr = util.TraceEntityHull({
+			start = npc:GetPos(),
+			endpos = npc:GetPos() + Vector(0,0,32768)
+		}, npc)
+		if not tr.Hit or tr.HitSky then
+			npc:Remove()
+			return
+		end
+
+		npc:SetPos(tr.HitPos - jcms.vectorUp * 2)
+	end,
+
+	postSpawn = function(npc)
+		--Technically unnecessary because anonymous already means we don't have director logic applied to us.
+		npc.jcms_ignoreStraggling = true
+
+		local hp = npc:GetMaxHealth() * 10
+		npc:SetMaxHealth(hp)
+		npc:SetHealth(hp)
+
+		timer.Simple(0, function() --(Unreliable?) fix to us not attacking players
+			if not IsValid(npc) then return end
+			npc:Activate()
+			npc:TakeDamage(0) --Awesome!11!
+		end)
+	end,
+
+	check = function() return false end --Stop us from spawning naturally
 }

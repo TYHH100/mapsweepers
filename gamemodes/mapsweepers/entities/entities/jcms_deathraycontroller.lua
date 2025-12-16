@@ -22,13 +22,13 @@ AddCSLuaFile()
 
 ENT.Type = "anim"
 ENT.Base = "base_anim"
-ENT.PrintName = "Orbital Beam"
 ENT.Author = "Octantis Addons"
 ENT.Category = "Map Sweepers"
 ENT.Spawnable = false
 ENT.RenderGroup = RENDERGROUP_TRANSLUCENT
  
 ENT.Speed = 300
+ENT.IsIdleUntilActive = false
 
 if SERVER then 
 	function ENT:Initialize()
@@ -51,11 +51,23 @@ if SERVER then
 		dRay:Spawn()
 
 		self.nextSlowThink = CurTime()
+
+		local pos = self:GetBeamTrace().HitPos
+		EmitSound("buttons/blip2.wav", pos, 0, CHAN_AUTO, 1, 75, 0, 110)
+		timer.Simple(0.125, function()
+			EmitSound("buttons/button17.wav", pos, 0, CHAN_AUTO, 1, 75, 0, 85)
+		end)
 	end
 
-	function ENT:BeamMoveTo(v)
+	function ENT:BeamMoveTo(v, target) --target is optional/potentially null.
 		local speed = self.Speed
 		local dmgrad = self.beamRadius
+
+		if IsValid(target) then 
+			if IsValid(self.jcms_owner) and not jcms.team_pvpSameTeam(self.jcms_owner, target) then
+				speed = speed * 0.75
+			end
+		end
 
 		local selfPos = self:GetPos()
 		selfPos.z = v.z --ignore Z
@@ -90,7 +102,12 @@ if SERVER then
 			local priority
 			local tgpos = target:WorldSpaceCenter()
 			if jcms.team_JCorp(target) then
-				priority = math.min(target:GetMaxHealth(), target:Health()) - self:DistanceSqrToTrace(tgpos, tr) - 10000000
+				if not IsValid(self.jcms_owner) or jcms.team_pvpSameTeam(self.jcms_owner, target) then
+					priority = math.min(target:GetMaxHealth(), target:Health()) - self:DistanceSqrToTrace(tgpos, tr) - 10000000
+				else
+					--Basically roughly treat enemy players like a 1500hp target
+					priority = 1500^2 - self:DistanceSqrToTrace(tgpos, tr)/2
+				end
 			else
 				priority = (1.5 * math.max(target:GetMaxHealth() - 5, 10)) - self:DistanceSqrToTrace(tgpos, tr)/2
 			end
@@ -138,7 +155,7 @@ if SERVER then
 		iterateEnts(player.GetAll())
 		
 		if IsValid(bestTarget) then
-			self:BeamMoveTo( bestTarget:WorldSpaceCenter() )
+			self:BeamMoveTo( bestTarget:WorldSpaceCenter(), bestTarget )
 		end
 	end
 	
@@ -158,13 +175,15 @@ if SERVER then
 		selfTbl.beamTime = selfTbl.beamTime + iv
 		
 		if selfTbl.beamTime <= selfTbl.beamLifeTime + selfTbl.beamPrepTime then
-			selfTbl.SlowThink(self)
+			if not(self.IsIdleUntilActive and selfTbl.beamTime < selfTbl.beamPrepTime) then
+				selfTbl.SlowThink(self)
 
-			local x,y,z = selfTbl.beamVelocity:Unpack()
-			selfTbl.beamMultipliedVelocity:SetUnpacked( x*iv, y*iv, z*iv )
-			selfTbl.beamMultipliedVelocity:Add(selfPos)
+				local x,y,z = selfTbl.beamVelocity:Unpack()
+				selfTbl.beamMultipliedVelocity:SetUnpacked( x*iv, y*iv, z*iv )
+				selfTbl.beamMultipliedVelocity:Add(selfPos)
 
-			self:SetPos(selfTbl.beamMultipliedVelocity)
+				self:SetPos(selfTbl.beamMultipliedVelocity)
+			end
 		else
 			self:Remove()
 		end

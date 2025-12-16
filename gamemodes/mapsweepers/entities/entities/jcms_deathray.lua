@@ -22,7 +22,6 @@ AddCSLuaFile()
 
 ENT.Type = "anim"
 ENT.Base = "base_anim"
-ENT.PrintName = "Orbital Beam"
 ENT.Author = "Octantis Addons"
 ENT.Category = "Map Sweepers"
 ENT.Spawnable = false
@@ -30,6 +29,7 @@ ENT.RenderGroup = RENDERGROUP_TRANSLUCENT
 
 ENT.DPS = 90
 ENT.DPS_DIRECT = 120
+ENT.IgniteOnHit = true
 
 jcms.deathray_npcMinDamageThresholds = {
 	["npc_strider"] = 100,
@@ -60,7 +60,7 @@ function ENT:Initialize()
 	if CLIENT then
 		self.soundBeam = CreateSound(self, "ambient/levels/citadel/zapper_loop1.wav")
 		self.soundBeam:ChangePitch(130, 0)
-		self.soundBeam:SetSoundLevel(200)
+		self.soundBeam:SetSoundLevel(140)
 
 		self.BeamColor = Color(255, 0, 0)
 
@@ -69,6 +69,8 @@ function ENT:Initialize()
 			self.pixVis[i] = util.GetPixelVisibleHandle()
 		end
 	end
+
+	self.hitTargets = {}
 
 	self:DrawShadow(false)
 end
@@ -86,8 +88,8 @@ if SERVER then
 			local targets = ents.FindAlongRay(tr.StartPos, tr.HitPos, Vector(-rad/2, -rad/2, -4), Vector(rad/2, rad/2, 4))
 			table.RemoveByValue(targets, self)
 			local parent = self:GetParent()
-			if IsValid(parent) then 
-				table.RemoveByValue(targets, parent)
+			if isentity(selfTbl.filter) then --TODO: Bad solution.
+				table.RemoveByValue(targets, selfTbl.filter)
 			end
 
 			local dmg = DamageInfo()
@@ -105,6 +107,10 @@ if SERVER then
 			dmg:SetDamageType( bit.bor(DMG_BLAST, DMG_DISSOLVE, DMG_DIRECT, DMG_AIRBOAT) )
 			
 			util.BlastDamageInfo(dmg, tr.HitPos + vector_up, rad * 4)
+
+			local colourVec = self:GetBeamColour()
+			colourVec:Mul(255)
+			local colourInt = jcms.util_ColorIntegerFast(colourVec:Unpack())
 
 			local basedmg = selfTbl.DPS_DIRECT
 			for i, target in ipairs(targets) do
@@ -124,15 +130,25 @@ if SERVER then
 							dmg:SetDamage(basedmg)
 							
 							local ed = EffectData()
-							ed:SetMagnitude(0.5)
+							ed:SetMagnitude(1)
 							ed:SetOrigin(target:EyePos())
 							ed:SetRadius(threshold / 10 + 72)
 							ed:SetNormal(target:GetAngles():Up())
-							ed:SetFlags(2)
+							ed:SetFlags(5)
+							ed:SetColor(colourInt)
 							util.Effect("jcms_blast", ed)
 							
 							target:EmitSound("jcms_deathray_blast")
-							target:Ignite(math.ceil(threshold/5))
+
+							if selfTbl.IgniteOnHit then
+								target:Ignite(math.ceil(threshold/5))
+							end
+						end
+
+						if selfTbl.instantDamageImpulse and not selfTbl.hitTargets[target] then
+							dmg:SetDamage(basedmg)
+							selfTbl.hitTargets[target] = true
+							target:TakeDamageInfo(dmg)
 						end
 					else
 						target:DispatchTraceAttack(dmg, tr)
@@ -170,15 +186,10 @@ if CLIENT then
 		local selfTbl = self:GetTable()
 		local beamTime, prepTime, lifeTime = selfTbl:GetBeamTime(), selfTbl:GetBeamPrepTime(), selfTbl:GetBeamLifeTime()
 		
-		if selfTbl.GetBeamIsBlue() then
-			selfTbl.BeamColor.r = 32
-			selfTbl.BeamColor.g = 128
-			selfTbl.BeamColor.b = 255
-		else
-			selfTbl.BeamColor.r = 255
-			selfTbl.BeamColor.g = 0
-			selfTbl.BeamColor.b = 0
-		end
+		local beamColourVector = self:GetBeamColour()
+		selfTbl.BeamColor.r = beamColourVector.x*255
+		selfTbl.BeamColor.g = beamColourVector.y*255
+		selfTbl.BeamColor.b = beamColourVector.z*255
 
 		if beamTime <= prepTime then
 			local tr = self.tr or selfTbl.GetBeamTrace(self)
@@ -207,7 +218,7 @@ if CLIENT then
 			end
 
 			local scroll = -beamTime
-			local lenfactor = tr.HitPos:Distance(beamStartPos)/(rad*8)
+			local lenfactor = tr.HitPos:Distance(beamStartPos)/(rad*10)
 
 			local beamColor = selfTbl.BeamColor
 			local beamColorBrighter = Color(selfTbl.BeamColor:Unpack())
@@ -222,7 +233,8 @@ if CLIENT then
 			tr.HitPos:Add(tr.HitNormal)
 			render.DrawQuadEasy(tr.HitPos, tr.HitNormal, math.Rand(8, 13)*rad*wm, math.random(3, 4)*rad*wm, beamColorBrighter, 360*math.random())
 			render.DrawQuadEasy(tr.HitPos, tr.HitNormal, math.random(9, 14)*rad*wm, math.random(2, 4)*rad*wm, beamColorBrighter, 360*math.random())
-			render.DrawQuadEasy(tr.HitPos, tr.HitNormal, math.random(6, 14)*rad*wm, math.random(6, 14)*rad*wm, beamColor, wm*360)
+			--render.DrawQuadEasy(tr.HitPos, tr.HitNormal, math.random(6, 14)*rad*wm, math.random(6, 14)*rad*wm, beamColor, wm*360)
+			render.DrawSprite(tr.HitPos, math.random(10, 18)*rad*wm, math.random(12, 18)*math.sqrt(rad)*wm, beamColor)
 			render.DrawQuadEasy(beamStartPos, tr.Normal, math.random(6, 14)*rad*wm, math.random(6, 14)*rad*wm, beamColorBrighter, wm*360)
 
 			render.SetMaterial(selfTbl.MatBeamLight)
@@ -244,39 +256,46 @@ if CLIENT then
 		local beamTime, prepTime, lifeTime = selfTbl:GetBeamTime(), selfTbl:GetBeamPrepTime(), selfTbl:GetBeamLifeTime()
 		local wm = self:CalcWidthMultiplier(beamTime - prepTime, lifeTime)
 		
-		local intensity = math.sqrt(math.max(0, wm * math.max(0, 1 - EyePos():Distance(tr.HitPos)/6000)))
-
+		
 		local visibility = 0 
 		for i, pv in ipairs(selfTbl.pixVis) do 
 			local travelVec = tr.HitPos - tr.StartPos
 			local dist = travelVec:Length()
-
+			
 			local pos = tr.StartPos + travelVec * (i/10)
 			local rad = dist * 0.15 --10 + 5% to make it a better approximation of a cylinder.
 			visibility = math.max(visibility, util.PixelVisible( pos, rad, pv ))
 		end
-
+		
+		local radMul = math.sqrt(self:GetBeamRadius() / 38)
+		local intensity = math.max(0, wm * math.max(0, 1 - EyePos():Distance(tr.HitPos)/(radMul*(3000 + visibility * 2000))))^3
 		visibility = math.min(1, visibility*2.25) --half of the sphere is going to be underground, ignore that.
-		intensity = intensity * 0.925 + (intensity * visibility * 0.075) --If we can't see the beam, make the screen-effects less intense.
+		intensity = intensity * 0.95 + (intensity * visibility * 0.05) --If we can't see the beam, make the screen-effects less intense.
 
-		local red = jcms.hud_blindingRedLight or 0
-		if selfTbl:GetBeamIsBlue() then
-			jcms.hud_blindingRedLight = math.min(red, (red - intensity)/2)
-		else
-			jcms.hud_blindingRedLight = math.max(red, (red + intensity)/2)
+		if not selfTbl.BlindColor then
+			selfTbl.BlindColor = Color(0, 0, 0)
 		end
 
-		util.ScreenShake(tr.HitPos, 9*intensity^10, 50, 0.1, 50*wm, true)
+		selfTbl.BlindColor:SetUnpacked(
+			selfTbl.BeamColor.r / (2 + 3*intensity + math.random()),
+			selfTbl.BeamColor.g / (2 + 3*intensity + math.random()),
+			selfTbl.BeamColor.b / (2 + 3*intensity + math.random())
+		)
+
+		jcms.colormod_Hold("jcms_deathray#"..self:EntIndex(), selfTbl.BlindColor, intensity + visibility*intensity*0.05, 1, 2)
+
+		local rad = self:GetBeamRadius()
+		util.ScreenShake(tr.HitPos, (rad/4)*intensity^10, rad*1.5, 0.1, rad*1.5*wm, true)
 
 		if beamTime <= prepTime then
 			if beamTime > prepTime - 0.5 and not selfTbl.sndPlayedPre then
 				local _, lineVec = util.DistanceToLine(tr.StartPos, tr.HitPos, EyePos())
-				EmitSound("ambient/levels/citadel/portal_beam_shoot6.wav", lineVec, 0, CHAN_AUTO, 1, 200, 0, 100, 0)
+				EmitSound("ambient/levels/citadel/portal_beam_shoot6.wav", lineVec, 0, CHAN_AUTO, 1, 140, 0, 100, 0)
 				selfTbl.sndPlayedPre = true
 			end
 		elseif beamTime > prepTime and beamTime <= lifeTime + prepTime then
 			if not selfTbl.sndPlayed then
-				self:EmitSound("beams/beamstart5.wav", 105, 88)
+				self:EmitSound("beams/beamstart5.wav", 100, 88)
 				selfTbl.sndPlayed = true
 				
 				selfTbl.soundBeam:Play()
@@ -288,8 +307,8 @@ if CLIENT then
 				selfTbl.sndEnded = true
 
 				local _, lineVec = util.DistanceToLine(tr.StartPos, tr.HitPos, EyePos())
-				EmitSound("ambient/levels/citadel/portal_beam_shoot3.wav", lineVec, 0, CHAN_AUTO, 1, 200, 0, 130, 0)
-				self:EmitSound("ambient/levels/citadel/portal_beam_shoot3.wav", 105, 130)
+				EmitSound("ambient/levels/citadel/portal_beam_shoot3.wav", lineVec, 0, CHAN_AUTO, 1, 140, 0, 130, 0)
+				self:EmitSound("ambient/levels/citadel/portal_beam_shoot3.wav", 100, 130)
 			end
 		end
 		
@@ -305,14 +324,27 @@ if CLIENT then
 end
 
 function ENT:GetBeamTrace()
+	local selfTbl = self:GetTable()
+
 	local pos = self:GetPos()
-	local endpos = Vector(pos.x, pos.y, pos.z - 32000)
+	local endpos
+
+	if selfTbl:GetUseAngles() then
+		endpos = self:GetAngles()
+		endpos:Add(selfTbl:GetAngleOffset())
+		
+		endpos = endpos:Forward()
+		endpos:Mul(32000)
+		endpos:Add(pos)
+	else
+		endpos = Vector(pos.x, pos.y, -32768)
+	end
 
 	local tr = util.TraceLine {
-		start = pos, endpos = endpos, mask = MASK_VISIBLE, filter = self.filter
+		start = pos, endpos = endpos, mask = MASK_VISIBLE, filter = selfTbl.filter
 	}
 
-	self.tr = tr --For avoiding duplicate work in Draw calls
+	selfTbl.tr = tr --For avoiding duplicate work in Draw calls
 	return tr
 end
 
@@ -320,14 +352,17 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Float", 0, "BeamTime")
 	self:NetworkVar("Float", 1, "BeamRadius")
 	self:NetworkVar("Vector", 0, "BeamVelocity")
+	self:NetworkVar("Vector", 1, "BeamColour")
 	self:NetworkVar("Float", 2, "BeamLifeTime")
 	self:NetworkVar("Float", 3, "BeamPrepTime")
-	self:NetworkVar("Bool", 0, "BeamIsBlue")
-	self:NetworkVar("Bool", 1, "BeamIsSky")
+	self:NetworkVar("Bool", 0, "BeamIsSky")
+	self:NetworkVar("Bool", 1, "UseAngles")
+	self:NetworkVar("Angle", 0, "AngleOffset")
 
 	if SERVER then
 		self:SetBeamRadius(32)
 		self:SetBeamLifeTime(15)
 		self:SetBeamPrepTime(2)
+		self:SetBeamColour(VectorRand(0, 1))
 	end
 end

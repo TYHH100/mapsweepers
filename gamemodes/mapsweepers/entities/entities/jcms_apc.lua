@@ -20,11 +20,8 @@
 --]]
 AddCSLuaFile()
 
---todo: Vehicle system issue, player's view will be flipped when leaving a vehicle if the vehicle is flipped.
-
 ENT.Type = "anim"
 ENT.Base = "base_anim"
-ENT.PrintName = "J Corp JAPC0 "
 ENT.Author = "Octantis Addons"
 ENT.Category = "Map Sweepers"
 ENT.Spawnable = false
@@ -39,6 +36,16 @@ if SERVER then
 		{ 65, 50 }
 	}
 end
+
+ENT.jcms_miningCrateAttaches = {
+	Vector(0,80,0),
+	Vector(0,-80,0),
+}
+
+ENT.jcms_miningCrateAngles = { --UI ANGLES ONLY
+	Angle(0,0,0),
+	Angle(180,0,0)
+}
 
 function ENT:Initialize()
 	self:SetCollisionGroup(COLLISION_GROUP_VEHICLE)
@@ -61,6 +68,7 @@ function ENT:Initialize()
 		self:SetHealth(1250)
 
 		self:AddEFlags(EFL_DONTBLOCKLOS)
+		--self:AddFlags(FL_NOTARGET)
 
 		self.nextInteract = 0
 		self:SetUseType(SIMPLE_USE)
@@ -79,6 +87,8 @@ function ENT:Initialize()
 
 		constraint.Keepupright( self, angle_zero, 0, 3 )
 		self.PassengersAPC = {}
+		
+		self.jcms_attachedCrates = {}
 	end
 end
 
@@ -97,6 +107,16 @@ function ENT:SetupDataTables()
 	end
 end
 
+function ENT:UpdateForFaction(faction)
+	if self:Health() <= 0 then
+		self:SetMaterial("models/jcms/"..faction.."_apc_destroyed")
+	else
+		for i, matname in ipairs(self:GetMaterials()) do
+			self:SetSubMaterial(i-1, matname:gsub("jcorp_", tostring(faction) .. "_"))
+		end
+	end
+end
+
 if SERVER then
 	ENT.HoverDistance = 92
 	ENT.Speed = 485
@@ -108,7 +128,7 @@ if SERVER then
 	ENT.MaxDampForce = 3000
 	ENT.ShieldDuration = 8
 	ENT.ShieldRechargeTime = 15
-	
+
 	function ENT:Think()
 		local selfTbl = self:GetTable()
 		if selfTbl.jcms_destroyed then
@@ -132,13 +152,21 @@ if SERVER then
 				self.soundWater = nil
 			end
 
-			if not self.despawning then
+			if not self.despawning then	
+				for slot, _ in ipairs(self.jcms_miningCrateAttaches) do 
+					local crate = self.jcms_attachedCrates[slot]
+					if IsValid(crate) then 
+						crate:DetachFromVehicle()
+					end
+				end
+				self.jcms_attachedCrates = nil
+
 				local despawnAfter = 7
 				
 				timer.Simple(despawnAfter, function()
 					if IsValid(self) then
 						local ed = EffectData()
-						ed:SetColor(jcms.util_colorIntegerJCorp)
+						ed:SetColor(jcms.util_GetColorIntegerPvP(self))
 						ed:SetFlags(2)
 						ed:SetEntity(self)
 						util.Effect("jcms_spawneffect", ed)
@@ -269,16 +297,17 @@ if SERVER then
 		speed = speed:Length()
 		local shieldOn = self:GetShieldActive()
 
-		if speed > 120 and data.HitEntity:Health() > 0 then
-			local dmg = DamageInfo()
-			dmg:SetDamage(math.sqrt(speed) / 10 + 5)
-			dmg:SetAttacker(self:GetDriver() or self)
-			dmg:SetInflictor(self)
-			dmg:SetDamageType(bit.bor(DMG_CRUSH, DMG_VEHICLE))
-			dmg:SetReportedPosition(self:GetPos())
-			dmg:SetDamagePosition(data.HitPos)
-			data.HitEntity:TakeDamageInfo(dmg)
+		if data.HitEntity:IsNPC() then
+			local dmgInfo = DamageInfo()
+			dmgInfo:SetDamage(speed/10 + (IsValid(self:GetDriver()) and 5 or 0))
+			dmgInfo:SetAttacker(self:GetDriver() or self)
+			dmgInfo:SetInflictor(self)
+			dmgInfo:SetDamageType(bit.bor(DMG_CRUSH, DMG_VEHICLE))
+			dmgInfo:SetReportedPosition(self:GetPos())
+			dmgInfo:SetDamagePosition(data.HitPos)
+			data.HitEntity:TakeDamageInfo(dmgInfo)
 		end
+
 		
 		if speed > 700 then
 			if shieldOn then
@@ -482,6 +511,7 @@ if SERVER then
 
 			self:SetPassengerCount(#passengers)
 			ply.jcms_lastEnteredAsPassenger = CurTime()
+			ply:EmitSound("physics/body/body_medium_impact_soft3.wav")
 		end
 	end
 
@@ -638,12 +668,13 @@ if SERVER then
 			util.Effect("jcms_blast", ed)
 			util.Effect("Explosion", ed)
 
-			self:SetMaterial("models/jcms/jcorp_apc_destroyed")
+			jcms.util_TryUpdateForPVP(self)
 			self:SetBodygroup(0, 1)
 		end
 	end
 	
 	function ENT:RedirectDamage(driver, dmg)
+		self:TakeDamageInfo( dmg )
 		dmg:ScaleDamage(0)
 	end
 end
@@ -672,7 +703,7 @@ if CLIENT then
 			local speed = self:GetVelocity():Length()
 
 			local p = e:Add("particle/smokesprites_0001", exhaustPos)
-			if p then
+			if IsValid(p) then
 				local fadefactor = math.sqrt(speed/300)
 				p:SetVelocity(ang:Forward()*-128)
 				p:SetAirResistance(150)
@@ -715,7 +746,7 @@ if CLIENT then
 	end
 
 	function ENT:OnRemove()
-		if self.emitter then
+		if IsValid(self.emitter) then
 			self.emitter:Finish()
 		end
 	end

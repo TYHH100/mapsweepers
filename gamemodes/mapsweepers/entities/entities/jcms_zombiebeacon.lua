@@ -39,6 +39,7 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Float", 1, "HealthFraction")
 
 	self:NetworkVar("Int", 0, "RequiredSwps")
+	self:NetworkVar("Int", 1, "SecuredByTeam")
 
 	if SERVER then 
 		self:SetCharge(0)
@@ -82,9 +83,10 @@ if SERVER then
 		end
 	end
 
-	function ENT:jcms_terminal_Callback()
+	function ENT:jcms_terminal_Callback(cmd, data, ply)
 		if self:GetSwpNear() then 
 			self:StartCountdown()
+			self.jcms_activator = ply
 			return true, tostring( CurTime() + 60 )
 		else
 			return false
@@ -96,6 +98,10 @@ if SERVER then
 
 		local timeReduction = math.Clamp(1 - (jcms.util_GetMissionTime()/60 - 5) / 20, 0, 1)
 		local required = math.ceil(#jcms.GetAliveSweepers() * 0.25 * timeReduction)
+		if jcms.util_IsPVP() then
+			required = math.ceil(math.min(#jcms.PVPGetTeamAlivePlayers(1), #jcms.PVPGetTeamAlivePlayers(2)) * 0.25 * timeReduction)
+		end
+
 		self:SetRequiredSwps(required)
 
 		self:SetSwpNear( #jcms.GetSweepersInRange(selfPos, 650) >= required )
@@ -194,7 +200,6 @@ if SERVER then
 
 		timer.Simple(5, function()
 			if IsValid(self) then
-
 				if self.deathAlert then
 					self.deathAlert:Stop()
 				end
@@ -215,13 +220,18 @@ if SERVER then
 				ed:SetFlags(1)
 				util.Effect("jcms_blast", ed)
 
-				util.ScreenShake(self:WorldSpaceCenter(), 50, 50, 10, 6000, true)
-				self:EmitSound("ambient/explosions/explode_6.wav", 140, 110, 1, CHAN_AUTO)
-				self:EmitSound("ambient/explosions/explode_2.wav", 100, 140, 1, CHAN_AUTO)
+				local filter = RecipientFilter()
+				filter:AddAllPlayers()
 
-				local radSphere = ents.Create("jcms_radsphere")
-				radSphere:SetPos(self:WorldSpaceCenter())
-				radSphere:Spawn()
+				util.ScreenShake(self:WorldSpaceCenter(), 50, 50, 10, 6000, true, filter)
+				self:EmitSound("ambient/explosions/explode_6.wav", 140, 110, 1, CHAN_AUTO, 0, 1, filter)
+				self:EmitSound("ambient/explosions/explode_2.wav", 100, 140, 1, CHAN_AUTO, 0, 1, filter)
+
+				if not jcms.util_IsPVP() then --We have a different incentive in PVP and keeping the radiation could get aids.
+					local radSphere = ents.Create("jcms_radsphere")
+					radSphere:SetPos(self:WorldSpaceCenter())
+					radSphere:Spawn()
+				end
 
 				self:Remove()
 			end
@@ -235,6 +245,10 @@ if SERVER then
 		self.alarmSound:Stop()
 		self:SetIsComplete(true)
 
+		if IsValid(self.jcms_activator) then
+			self:SetSecuredByTeam(self.jcms_activator:GetNWInt("jcms_pvpTeam", -1))
+		end
+
 		--self:AddFlags(FL_NOTARGET)
 		for i, bullseye in ipairs(self.bullseyes) do 
 			if not IsValid(bullseye) then continue end 
@@ -243,6 +257,8 @@ if SERVER then
 
 		self:SetNWString("jcms_terminal_modeData", "2")
 		self:SetActive(false)
+
+		jcms.director_PvpObjectiveCompleted(self.jcms_activator, self:GetPos())
 	end
 
 	function ENT:StartCountdown()
@@ -254,7 +270,7 @@ if SERVER then
 		self.alarmSound:SetSoundLevel(90)
 		self.alarmSound:PlayEx(1, 90)
 
-		self:SetMaxHealth(500)
+		self:SetMaxHealth( jcms.util_IsPVP() and 1000 or 500 ) --double HP for pvp mode since it's harder to defend there.
 		self:SetHealth(self:GetMaxHealth())
 
 		--self:RemoveFlags(FL_NOTARGET)
@@ -325,7 +341,7 @@ if CLIENT then
 		end
 
 		if self:GetIsComplete() then 
-			local col = jcms.util_ColorFromInteger( jcms.util_colorIntegerJCorp )
+			local col = jcms.util_ColorFromInteger( self:GetSecuredByTeam() == 2 and jcms.util_colorIntegerMafia or jcms.util_colorIntegerJCorp )
 			
 			render.SetBlend(0.25)
 			render.SetColorModulation((col.r/200), (col.g/200), (col.b/200))

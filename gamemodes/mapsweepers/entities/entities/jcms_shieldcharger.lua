@@ -32,11 +32,11 @@ ENT.ChargePerSecond = 5
 ENT.ChargeInterval = 0.5
 
 ENT.SentinelAnchor = true
+ENT.JCMS_Stunnable = true
 
 function ENT:Initialize()
 	if SERVER then
 		self:SetModel("models/props_combine/combine_light001a.mdl")
-		self:SetColor(Color(32, 230, 255))
 		self:PhysicsInitStatic(SOLID_VPHYSICS)
 		
 		self:SetMaxHealth(500)
@@ -47,7 +47,17 @@ function ENT:Initialize()
 		self.chargeEffectX = 0
 	end
 
-	self.hackStunEnd = CurTime()
+	self.jcms_stunEnd = CurTime()
+end
+
+function ENT:UpdateForFaction(faction)
+	if faction == "rgg" then
+		self:SetColor( Color(162, 81, 255) )
+	elseif faction == "mafia" then
+		self:SetColor( Color(241, 212, 14) )
+	else
+		self:SetColor( Color(32, 230, 255) )
+	end
 end
 
 function ENT:SetupDataTables()
@@ -58,12 +68,11 @@ function ENT:SetupDataTables()
 	self:SetChargeRadius(600)
 
 	self:NetworkVarNotify("HackedByRebels", function(ent, name, old, new )
-		if new then 
-			self:SetColor(Color(162, 81, 255))
-			self.hackStunEnd = CurTime() + 2.5
-		else
-			self:SetColor(Color(32, 230, 255))
+		if new then
+			self.jcms_stunEnd = CurTime() + 2.5
 		end
+
+		self:UpdateForFaction(new and "rgg" or jcms.util_GetFactionNamePVP(ent))
 	end)
 end
 
@@ -71,10 +80,10 @@ if SERVER then
 	function ENT:Think()
 		local charging = false
 		if self:Health() > 0 then
-			if self.hackStunEnd < CurTime() or not self:GetHackedByRebels() then 
+			if self.jcms_stunEnd < CurTime() or not self:GetHackedByRebels() then 
 				local radius = self:GetChargeRadius()
 				for i, ply in ipairs(jcms.GetAliveSweepers()) do
-					if (ply:Armor() < ply:GetMaxArmor()) and (ply:WorldSpaceCenter():DistToSqr(self:WorldSpaceCenter()) <= radius*radius) then
+					if (ply:Armor() < ply:GetMaxArmor()) and (ply:WorldSpaceCenter():DistToSqr(self:WorldSpaceCenter()) <= radius*radius) and jcms.team_SameTeam(self, ply) then
 						self:ChargeShield(ply)
 						charging = true
 					end
@@ -116,7 +125,7 @@ if SERVER then
 		if self:GetHackedByRebels() then
 			local inflictor, attacker = dmg:GetInflictor(), dmg:GetAttacker()
 			if IsValid(inflictor) and jcms.util_IsStunstick(inflictor) and jcms.team_JCorp(attacker) then --UnHack
-				jcms.util_UnHack(self)
+				jcms.util_UnHack(self, attacker)
 				return 0
 			end
 			self:SetHealth(self:Health() - dmg:GetDamage())
@@ -124,6 +133,30 @@ if SERVER then
 			return 0
 		end
 	end
+
+	function ENT:BreakByBreach(forceVector)
+		self.ChargePerSecond = 0
+		
+        self:EmitSound("physics/metal/metal_box_break2.wav", 80, 103)
+        self:PhysicsInit(SOLID_VPHYSICS)
+        self:SetCollisionGroup(COLLISION_GROUP_DEBRIS)
+        local physObj = self:GetPhysicsObject()
+        if IsValid(physObj) and forceVector then
+            physObj:SetVelocity( forceVector )
+        end
+
+        timer.Simple(2.75, function()
+            if IsValid(self) then
+                self:SetModelScale(0, 0.25)
+            end
+        end)
+
+        timer.Simple(3, function()
+            if IsValid(self) then
+                self:Remove()
+            end
+        end)
+    end
 end
 
 if CLIENT then
@@ -135,7 +168,7 @@ if CLIENT then
 	end
 	
 	function ENT:Think()
-		if self:GetHackedByRebels() and self.hackStunEnd > CurTime() then return end
+		if self:GetHackedByRebels() and self.jcms_stunEnd > CurTime() then return end
 
 		if FrameTime() > 0 then
 			self.chargeEffectX = (self.chargeEffectX + 1) % 3
@@ -145,7 +178,7 @@ if CLIENT then
 
 				local radius = self:GetChargeRadius()
 				for i, ply in ipairs(jcms.GetAliveSweepers()) do
-					if ply:Health() > 0 and (ply:Armor() < ply:GetMaxArmor()) and (ply:WorldSpaceCenter():DistToSqr(self:WorldSpaceCenter()) <= radius*radius) then
+					if ply:Health() > 0 and (ply:Armor() < ply:GetMaxArmor()) and (ply:WorldSpaceCenter():DistToSqr(self:WorldSpaceCenter()) <= radius*radius) and jcms.team_SameTeam(self, ply) then
 						local ed = EffectData()
 						ed:SetFlags(0)
 						ed:SetOrigin(self:WorldSpaceCenter())

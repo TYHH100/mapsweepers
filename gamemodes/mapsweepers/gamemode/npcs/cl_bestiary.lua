@@ -24,7 +24,7 @@ jcms.bestiary = {}
 -- // Antlion {{{
 
 	jcms.bestiary.antlion_cyberguard = {
-		faction = "antlion", bounty = 300, health = 450,
+		faction = "antlion", bounty = 300, health = 523,
 		mdl = "models/antlion_guard.mdl", mats = { "models/jcms/cyberguard" }, camlookvector = Vector(0, 0, 50)
 	}
 
@@ -34,8 +34,15 @@ jcms.bestiary = {}
 	}
 
 	jcms.bestiary.antlion_guard = {
-		faction = "antlion", bounty = 350, health = 675,
+		faction = "antlion", bounty = 350, health = 445,
 		mdl = "models/antlion_guard.mdl", camlookvector = Vector(0, 0, 50)
+	}
+
+	jcms.bestiary.antlion_burrowerguard = {
+		faction = "antlion", bounty = 275, health = 419,
+		mdl = "models/antlion_guard.mdl",
+		camlookvector = Vector(0, 0, 50),
+		skin = 1, scale = 0.75
 	}
 
 	jcms.bestiary.antlion_reaper = {
@@ -44,7 +51,7 @@ jcms.bestiary = {}
 	}
 
 	jcms.bestiary.antlion_ultracyberguard = {
-		faction = "antlion", bounty = 600, health = 563,
+		faction = "antlion", bounty = 600, health = 785,
 		mdl = "models/jcms/ultracyberguard.mdl", camlookvector = Vector(0, 0, 50)
 	}
 
@@ -171,12 +178,12 @@ jcms.bestiary = {}
 	}
 
 	jcms.bestiary.zombie_charple = {
-		faction = "zombie", bounty = 20, health = 25,
+		faction = "zombie", bounty = 22, health = 25,
 		mdl = "models/zombie/fast.mdl", mats = { "models/charple/charple3_sheet" }, camfov = 30
 	}
 
 	jcms.bestiary.zombie_combine = {
-		faction = "zombie", bounty = 40, health = 100,
+		faction = "zombie", bounty = 40, health = 150,
 		mdl = "models/zombie/zombie_soldier.mdl"
 	}
 
@@ -196,7 +203,7 @@ jcms.bestiary = {}
 	}
 
 	jcms.bestiary.zombie_minitank = {
-		faction = "zombie", bounty = 45, health = 432,
+		faction = "zombie", bounty = 225, health = 432,
 		mdl = "models/zombie/poison.mdl", bodygroups = { [1] = 1 }, camfov = 25
 	}
 
@@ -213,7 +220,7 @@ jcms.bestiary = {}
 	}
 
 	jcms.bestiary.zombie_spawner = {
-		faction = "zombie", bounty = 250, health = 675,
+		faction = "zombie", bounty = 350, health = 750,
 		mdl = "models/jcms/zombiespawner.mdl", scale = 0.5,
 	}
 

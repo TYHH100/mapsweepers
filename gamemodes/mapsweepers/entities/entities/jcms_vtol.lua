@@ -32,6 +32,14 @@ ENT.Damage = 15
 ENT.Firerate = 0.07
 ENT.Spread = 1.7
 
+ENT.jcms_miningCrateAttaches = {
+	Vector(-100,0,-30)
+}
+
+ENT.jcms_miningCrateAngles = { --UI ANGLES ONLY
+	Angle(0,0,0)
+}
+
 function ENT:Initialize()
 	self:SetCollisionGroup(COLLISION_GROUP_VEHICLE)
 	
@@ -41,6 +49,7 @@ function ENT:Initialize()
 		self:GetPhysicsObject():Wake()
 		self:StartMotionController()
 		self:AddEFlags(EFL_DONTBLOCKLOS)
+		--self:AddFlags(FL_NOTARGET)
 		
 		self.soundEngine = CreateSound(self, "^thrusters/rocket00.wav")
 		self.soundEngine:SetSoundLevel(150)
@@ -58,6 +67,8 @@ function ENT:Initialize()
 		self.nextInteract = 0
 		self:CreatePassengerSeats()
 		self:SetUseType(SIMPLE_USE)
+
+		self.jcms_attachedCrates = {}
 	elseif CLIENT then 
 		self.jetTransition = 0
 	end
@@ -87,6 +98,12 @@ function ENT:SetupDataTables()
 	end
 end
 
+function ENT:UpdateForFaction(faction)
+	for i, matname in ipairs(self:GetMaterials()) do
+		self:SetSubMaterial(i-1, matname:gsub("jcorp_", tostring(faction) .. "_"))
+	end
+end
+
 if SERVER then
 	function ENT:Think()
 		if self.jcms_destroyed or not self:GetIsWorking() then
@@ -104,14 +121,23 @@ if SERVER then
 			if not self.jcms_destroyed and IsValid(self:GetPhysicsObject()) and IsValid(self:GetDriver()) and self:GetPhysicsObject():IsAsleep() then
 				self:GetPhysicsObject():Wake()
 			end
+			
 
 			if not self.despawning then
+				for slot, _ in ipairs(self.jcms_miningCrateAttaches) do 
+					local crate = self.jcms_attachedCrates[slot]
+					if IsValid(crate) then 
+						crate:DetachFromVehicle()
+					end
+				end
+				self.jcms_attachedCrates = nil
+
 				local despawnAfter = 15
 				
 				timer.Simple(despawnAfter, function()
 					if IsValid(self) then
 						local ed = EffectData()
-						ed:SetColor(jcms.util_colorIntegerJCorp)
+						ed:SetColor(jcms.util_GetColorIntegerPvP(self))
 						ed:SetFlags(2)
 						ed:SetEntity(self)
 						util.Effect("jcms_spawneffect", ed)
@@ -299,7 +325,7 @@ if SERVER then
 			
 			return
 		end
-		
+
 		local mass = phys:GetMass()
 		local mypos = self:GetPos()
 		local myang = self:GetAngles()
@@ -558,6 +584,7 @@ if SERVER then
 				
 				if IsValid(best) then
 					activator:EnterVehicle(best)
+					best:EmitSound("physics/body/body_medium_impact_soft3.wav")
 					self.nextInteract = CurTime() + 0.25
 					
 					for i=1,6 do
@@ -671,6 +698,7 @@ if SERVER then
 	end
 
 	function ENT:RedirectDamage(driver, dmg)
+		self:TakeDamageInfo( dmg )
 		dmg:SetDamage(0)
 	end
 end

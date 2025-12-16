@@ -41,7 +41,9 @@ ENT.BreachDoors = false
 function ENT:Initialize()
 	if SERVER then
 		self:SetModel("models/weapons/w_slam.mdl")
-		self:SetColor(Color(255, 32, 32))
+		self:SetColor((self:GetNWInt("jcms_pvpTeam", -1) == 2 and Color(241, 212, 14)) or Color(255, 32, 32))
+
+
 		self:PhysicsInit(SOLID_VPHYSICS)
 		self.blastTime = CurTime()
 		self.expiration = CurTime() + self.Expires
@@ -62,6 +64,14 @@ function ENT:SetupDataTables()
 	self:NetworkVar("Vector", 0, "BlinkColor")
 	self:NetworkVar("Angle", 0, "BlinkDirection")
 	--self:SetBlinkColor( Vector(1, 0, 0) )
+end
+
+function ENT:UpdateForFaction(faction)
+	local col = Vector(1, 0, 0)
+	if faction == "mafia" then
+		col:SetUnpacked(241/255, 212/255, 14/255)
+	end
+	self:SetBlinkColor(col)
 end
 
 if SERVER then
@@ -97,7 +107,12 @@ if SERVER then
 		local removed = constraint.RemoveAll(self)
 		if removed then
 			self:EmitSound("physics/metal/metal_computer_impact_bullet3.wav", 75, 110)
-			util.SpriteTrail(self, 0, Color(255, 64, 64), true, 10, 0, 0.5, 0.1, "trails/laser")
+
+			local col = Color(255, 64, 64)
+			if self:GetNWInt("jcms_pvpTeam", -1) == 2 then
+				col:SetUnpacked(255, 255, 0)
+			end
+			util.SpriteTrail(self, 0, col, true, 10, 0, 0.5, 0.1, "trails/laser")
 		end
 	end
 
@@ -136,7 +151,7 @@ if SERVER then
 			local goodTargets = 0
 			local mypos = self:GetPos()
 			for i, target in ipairs(ents.FindInSphere(mypos, selfTbl.Proximity)) do
-				if jcms.team_GoodTarget(target) and jcms.team_NPC(target) then
+				if jcms.team_GoodTarget(target) and not jcms.team_SameTeam(self, target) then
 					local tr = util.TraceLine { start = mypos, endpos = target:EyePos(), mask = MASK_SHOT, filter = self }
 					if not tr.Hit or tr.Entity == target then
 						goodTargets = goodTargets + 1
@@ -222,6 +237,7 @@ if SERVER then
 		
 		local weldedTo = self.jcms_weldedTo
 		if IsValid(weldedTo) and IsValid( weldedTo:GetPhysicsObject() ) then
+			local colorInt = jcms.util_GetColorIntegerPvP(self)
 			if self.BreachDoors then
 				if weldedTo:GetClass() == "prop_door_rotating" then
 					weldedTo:PhysicsInit(SOLID_VPHYSICS)
@@ -236,7 +252,7 @@ if SERVER then
 					timer.Simple(despawnAfter, function()
 						if IsValid(weldedTo) then
 							local ed = EffectData()
-							ed:SetColor(jcms.util_colorIntegerJCorp)
+							ed:SetColor(colorInt)
 							ed:SetFlags(2)
 							ed:SetEntity(weldedTo)
 							util.Effect("jcms_spawneffect", ed)
@@ -256,6 +272,8 @@ if SERVER then
 					weldedTo.jcms_breached = true
 
 					self:DamageUnder(weldedTo)
+				elseif weldedTo.BreakByBreach then
+					weldedTo:BreakByBreach( self:GetAngles():Up() )
 				end
 			end
 			
