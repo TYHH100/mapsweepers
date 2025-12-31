@@ -592,7 +592,7 @@
 
 					if p.gunStats then
 						if not p.gunStats[ class ] then
-							p.gunStats[ class ] = jcms.gunstats_GetExpensive(class)
+							p.gunStats[ class ] = jcms.gunstats_Get(class)
 						end
 
 						local stats = p.gunStats[ class ]
@@ -1725,7 +1725,7 @@
 					wbtn.gunSale = jcms.util_GetLobbyWeaponCostMultiplier()
 					wbtn.ammoSale = 1
 					wbtn.gunClass = class 
-					wbtn.gunStats = jcms.gunstats_GetExpensive(class)
+					wbtn.gunStats = jcms.gunstats_Get(class)
 					wbtn.cost = jcms.weapon_prices[class]
 					p.weaponButtons[i] = wbtn
 				end
@@ -1951,7 +1951,7 @@
 
 			draw.SimpleText("★ " .. language.GetPhrase("jcms.credits_github"), "jcms_medium", 24, 218, jcms.color_bright, TEXT_ALIGN_LEFT, TEXT_ALIGN_TOP)
 			local contributors = {
-				"Redox", "thecraftianman"
+				"Redox", "thecraftianman", "rtkz_wasa19741"
 			}
 
 			draw.SimpleText(table.concat(contributors, ", "), "jcms_small_bolder", 28, 248, jcms.color_pulsing)

@@ -142,6 +142,7 @@ local nmt = FindMetaTable("NPC")
 	jcms.cvar_pvpautobalance = CreateConVar("jcms_pvpautobalance", game.IsDedicated() and "1" or "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "0=No autobalancing; 1=Restrict joining to the smallest team; 2=Randomize teams before the round")
 	jcms.cvar_pvpdebug = CreateConVar("jcms_pvpdebug", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "Stops PVP mode from ending when only 1 team is present")
 	jcms.cvar_pvprespawnmode = CreateConVar("jcms_pvprespawnmode", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "0=Team-wide, 1=Per-Player")
+	jcms.cvar_pvptracers = CreateConVar("jcms_pvptracers", "1", FCVAR_JCMS_NOTIFY_AND_SAVE, "Whether players get given team-coloured tracers") --TODO: Rename to jcms_pvptracers and change default after testing
 
 	jcms.cvar_performanceMode = CreateConVar("jcms_performancemode", "0", FCVAR_JCMS_NOTIFY_AND_SAVE, "Various more aggressive changes to improve performance")
 	
@@ -440,6 +441,8 @@ local nmt = FindMetaTable("NPC")
 		["frag grenades"] = true,
 	}
 
+	jcms.weapon_statsCache = jcms.weapon_statsCache or {}
+
 	function jcms.gunstats_GetExpensive(class)
 		local gunData = weapons.Get(class) or jcms.default_weapons_datas[class]
 		if not gunData then return end
@@ -697,13 +700,37 @@ local nmt = FindMetaTable("NPC")
 			stats.slot = gunData.Slot or 5
 			stats.icon = gunData.IconOverride
 
+		if not jcms.weapon_statsCache[class] then
+			jcms.weapon_statsCache[class] = stats
+		end
+		
 		return stats
+	end
+
+	function jcms.gunstats_Get(class)
+		local cached = jcms.weapon_statsCache[ class ]
+
+		if cached == nil then
+			s, rtn = pcall(jcms.gunstats_GetExpensive, class)
+
+			if s and type(rtn) == "table" then
+				cached = rtn
+			else
+				cached = false
+			end
+
+			jcms.weapon_statsCache[ class ] = cached
+		end
+		
+		if cached then 
+			return cached -- so that we return 'nil' instead of 'false'
+		end
 	end
 
 	if CLIENT then
 		function jcms.gunstats_GetMat(class)
 			if not jcms.gunMats[ class ] then
-				local wepstats = jcms.gunstats_GetExpensive(class)
+				local wepstats = jcms.gunstats_Get(class)
 
 				jcms.gunMats[class] = Material(wepstats and wepstats.icon or "vgui/entities/"..class..".png")
 				if jcms.gunMats[class]:IsError() then
@@ -751,6 +778,8 @@ local nmt = FindMetaTable("NPC")
 	end
 
 	function jcms.gunstats_CalcWeaponPrice(stats, noDivider)
+		if type(stats) ~= "table" then return 0 end
+
 		if stats.costOverride then 
 			return stats.costOverride
 		end
@@ -993,6 +1022,7 @@ local nmt = FindMetaTable("NPC")
 
 	function jcms.PVPGetTeamAlivePlayers( pvpTeam ) 
 		local plys = jcms.GetAliveSweepers()
+		
 		for i=#plys, 1, -1 do 
 			local ply = plys[i] 
 			if not jcms.team_pvpSameTeam_optimised(pvpTeam, ply:GetNWInt("jcms_pvpTeam", -1)) then

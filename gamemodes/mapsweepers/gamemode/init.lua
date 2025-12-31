@@ -1,19 +1,19 @@
 --[[
 	Map Sweepers - Co-op NPC Shooter Gamemode for Garry's Mod by "Octantis Addons" (consisting of MerekiDor & JonahSoldier)
-    Copyright (C) 2025  MerekiDor
+	Copyright (C) 2025  MerekiDor
 
-    This program is free software: you can redistribute it and/or modify
-    it under the terms of the GNU General Public License as published by
-    the Free Software Foundation, either version 3 of the License, or
-    (at your option) any later version.
+	This program is free software: you can redistribute it and/or modify
+	it under the terms of the GNU General Public License as published by
+	the Free Software Foundation, either version 3 of the License, or
+	(at your option) any later version.
 
-    This program is distributed in the hope that it will be useful,
-    but WITHOUT ANY WARRANTY; without even the implied warranty of
-    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-    GNU General Public License for more details.
+	This program is distributed in the hope that it will be useful,
+	but WITHOUT ANY WARRANTY; without even the implied warranty of
+	MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+	GNU General Public License for more details.
 
-    You should have received a copy of the GNU General Public License
-    along with this program.  If not, see <https://www.gnu.org/licenses/>.
+	You should have received a copy of the GNU General Public License
+	along with this program.  If not, see <https://www.gnu.org/licenses/>.
 
 	See the full GNU GPL v3 in the LICENSE file.
 	Contact E-Mail: merekidorian@gmail.com
@@ -41,13 +41,14 @@ include "_main/sh_net.lua"
 include "_main/sh_hints.lua"
 include "_main/server/sv_director.lua"
 include "_main/sh_controls.lua"
-include "_main/server/sv_terminal.lua"
+include "terminals/sv_terminals.lua"
 include "_main/server/sv_spawnmenu.lua"
 include "_main/server/sv_mapgen.lua"
 include "_main/server/sv_addoncompatibility.lua"
 include "_main/sh_announcer.lua"
 include "_main/sh_factions.lua"
 include "_main/sh_statistics.lua"
+include "_main/server/sv_runprogress.lua"
 
 -- // Mission Includes {{{
 	do 
@@ -114,7 +115,7 @@ AddCSLuaFile "_main/sh_factions.lua"
 AddCSLuaFile "_main/client/ui/cl_hud.lua"
 AddCSLuaFile "_main/client/ui/cl_hud_npc.lua"
 AddCSLuaFile "_main/client/cl_flashlights.lua"
-AddCSLuaFile "_main/client/cl_terminal.lua"
+AddCSLuaFile "terminals/cl_terminals.lua"
 AddCSLuaFile "_main/client/ui/cl_objectives.lua"
 AddCSLuaFile "_main/client/ui/cl_spawnmenu.lua"
 AddCSLuaFile "_main/client/ui/cl_paint.lua"
@@ -216,13 +217,18 @@ end
 		return enabled == false
 	end)
 	
-	hook.Add("EntityTakeDamage", "jcms_Adjustments", function(ent, dmg)
+	hook.Add("EntityTakeDamage", "jcms_Adjustments", function(ent, dmg) --TODO: This hook has become a bit of a mess. 
 		local attacker = dmg:GetAttacker()
 		local inflictor = dmg:GetInflictor()
 		local dmgType = dmg:GetDamageType()
 
 		if ent:IsNPC() then
 			ent.jcms_lastDamageType = dmgType
+		end
+
+		if ent:IsPlayer() and ent:GetNWInt("jcms_antirad", 0) > 0 then --Radiation invulnerability
+			dmg:ScaleDamage(0)
+			return true
 		end
 
 		if (inflictor == attacker) and attacker:IsPlayer() and bit.band(dmgType, bit.bor(DMG_BUCKSHOT, DMG_BULLET)) > 0 then
@@ -502,7 +508,7 @@ end
 		local pvpAllowed = jcms.cvar_pvpallowed:GetInt()
 		if (pvpAllowed == 1) and (jcms.util_IsPVPAllowed()) and (not jcms.director) and (not jcms.pvp_firstVote) then
 			jcms.pvp_firstVote = true 
-			jcms.pvp_StartVote(40)
+			jcms.pvp_StartVote(60)
 		end
 	end)
 
@@ -596,118 +602,28 @@ end
 	end)
 
 	hook.Add("PlayerCanSeePlayersChat", "jcms_teamChat", function(text, teamOnly, listener, speaker)
-		return not teamOnly or jcms.team_SameTeam(listener, speaker)
+		local isPvp = jcms.util_IsPVP()
+		return not teamOnly or (not isPvp and jcms.team_SameTeam(listener, speaker)) or (isPvp and jcms.team_pvpSameTeam(listener, speaker))
 	end)
 	hook.Add("PlayerCanHearPlayersVoice", "jcms_teamChat", function(listener, speaker)
-		return not jcms.util_IsPVP() or jcms.team_SameTeam(listener, speaker)
+		return not jcms.util_IsPVP() or jcms.team_pvpSameTeam(listener, speaker)
 	end)
--- // }}}
 
--- // Run Progress {{{
+	hook.Add("PostEntityFireBullets", "jcms_pvpTracers", function(ent, bulletData)
+		if not ent:IsPlayer() or not jcms.util_IsPVP() or not jcms.cvar_pvptracers:GetBool() then return end
 
-	jcms.runprogress = jcms.runprogress or {
-		difficulty = 0.9,
-		winstreak = 0,
-		totalWins = 0,
-		playerStartingCash = {}, -- key is Steam ID 64, value is starting cash. 
+		--Having to network this for literally every bullet is kinda awful, but this hook isn't called clientside at all for some reason.
+		local tr = bulletData.Trace
+		local effectdata = EffectData()
+		effectdata:SetStart(LerpVector(7/tr.StartPos:Distance(tr.HitPos), tr.StartPos, tr.HitPos))
+		effectdata:SetScale(math.random(6500, 9000))
+		effectdata:SetAngles(tr.Normal:Angle())
+		effectdata:SetOrigin(tr.HitPos)
+		effectdata:SetFlags(0)
+		effectdata:SetMaterialIndex(math.max(0, ent:GetNWInt("jcms_pvpTeam", -1)))
 
-		lastMission = "",
-		lastFaction = ""
-	}
-
-	function jcms.runprogress_CalculateDifficultyFromWinstreak(winstreak, totalWins)
-		local newPlayerScalar = 1 - math.max((6 - totalWins), 0) * 0.06
-		local final = (0.9 + winstreak * 0.175) * newPlayerScalar
-		game.GetWorld():SetNWFloat("jcms_difficulty", final)
-		return final
-		
-		--Winstreaks increase difficulty (17.5% per mission).
-		--Being new to the game (having fewer than 5 wins) also reduces your difficulty. This scales from 25% to 0% reduction
-	end
-
-	function jcms.runprogress_GetDifficulty()
-		return jcms.util_IsPVP() and 1 or jcms.runprogress.difficulty
-	end
-
-	function jcms.runprogress_Victory()
-		local rp = jcms.runprogress
-		rp.winstreak = rp.winstreak + 1
-		rp.totalWins = rp.totalWins + 1
-		rp.difficulty = jcms.runprogress_CalculateDifficultyFromWinstreak(rp.winstreak, rp.totalWins)
-		game.GetWorld():SetNWInt("jcms_winstreak", rp.winstreak)
-		game.GetWorld():SetNWInt("jcms_difficulty", rp.difficulty)
-	end
-
-	function jcms.runprogress_AddStartingCash(ply_or_sid64, amount)
-		local sid64 = tostring(ply_or_sid64)
-		if type(ply_or_sid64) == "Player" then
-			sid64 = ply_or_sid64:SteamID64()
-		end
-		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
-
-		local startingCashTable = jcms.runprogress.playerStartingCash
-		if startingCashTable[ sid64 ] then
-			startingCashTable[ sid64 ] = math.ceil( startingCashTable[ sid64 ] + ( tonumber(amount) or 0 ) )
-		else
-			startingCashTable[ sid64 ] = math.ceil( jcms.cvar_cash_start:GetInt() + ( tonumber(amount) or 0 ) )
-		end
-	end
-
-	function jcms.runprogress_ResetStartingCash(ply_or_sid64)
-		local sid64 = tostring(ply_or_sid64)
-		if type(ply_or_sid64) == "Player" then
-			sid64 = ply_or_sid64:SteamID64()
-		end
-		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
-
-		jcms.runprogress.playerStartingCash[ sid64 ] = jcms.cvar_cash_start:GetInt()
-	end
-
-	function jcms.runprogress_GetStartingCash(ply_or_sid64)
-		if jcms.util_IsPVP() then return jcms.cvar_cash_start:GetInt() end
-
-		local sid64 = tostring(ply_or_sid64)
-		if type(ply_or_sid64) == "Player" then
-			sid64 = ply_or_sid64:SteamID64()
-		end
-		sid64 = "_" .. sid64 --Stop JSONToTable from obliterating us.
-
-		return jcms.runprogress.playerStartingCash[ sid64 ] or jcms.cvar_cash_start:GetInt()
-	end
-
-	function jcms.runprogress_UpdateAllPlayers()
-		for i, ply in player.Iterator() do 
-			ply:SetNWInt("jcms_cash", jcms.runprogress_GetStartingCash(ply))
-			--print(jcms.runprogress_GetStartingCash(ply))
-		end
-	end
-
-	function jcms.runprogress_Reset()
-		local rp = jcms.runprogress
-
-		if not rp.highScore or rp.highScore.winstreak < rp.winstreak then
-			--Save the highest winstreak the server's had, including all runprogress data (players / winstreak / etc)
-			rp.highScore = nil
-			rp.highScore = table.Copy(rp)
-		end
-
-		rp.winstreak = 0
-		rp.difficulty = jcms.runprogress_CalculateDifficultyFromWinstreak(rp.winstreak, rp.totalWins)
-		table.Empty(jcms.runprogress.playerStartingCash)
-		game.GetWorld():SetNWInt("jcms_winstreak", rp.winstreak)
-		game.GetWorld():SetNWInt("jcms_difficulty", rp.difficulty)
-	end
-
-	function jcms.runprogress_GetLastMissionTypes()
-		return jcms.runprogress.lastMission, jcms.runprogress.lastFaction
-	end
-
-	function jcms.runprogress_SetLastMission()
-		local rp = jcms.runprogress
-		rp.lastMission = jcms.util_GetMissionType()
-		rp.lastFaction = jcms.util_GetMissionFaction()
-	end
-
+		util.Effect("jcms_laser", effectdata)
+	end)
 -- // }}}
 
 -- // Friendly-Fire Tracking / other player data {{{
@@ -851,6 +767,12 @@ end
 	hook.Add("PlayerPostThink", "jcms_PlayerThink", function(ply)
 		if ply:IsOnFire() and ply:WaterLevel() > 0 then
 			ply:Extinguish()
+		end
+
+		ply.jcms_nextRadThink = ply.jcms_nextRadThink or 0
+		if ply.jcms_nextRadThink < CurTime() then
+			ply:SetNWInt("jcms_antirad", math.max(ply:GetNWInt("jcms_antirad", 0)-1, 0))
+			ply.jcms_nextRadThink = CurTime() + 1
 		end
 
 		ply:SetNoTarget(ply:GetObserverMode() ~= OBS_MODE_NONE)
@@ -1356,8 +1278,6 @@ end
 	end
 
 	function GM:PlayerSpawn(ply, transition)
-		ply.jcms_lastDeathTime = ply.jcms_lastDeathTime or 0
-		
 		if jcms.inTutorial then
 			ply.jcms_justSpawned = true
 			ply:SetNWString("class", "infantry")
@@ -1390,7 +1310,7 @@ end
 								-- We've been here before. Now we're considered dead.
 								ply:SetNWInt("jcms_desiredteam", 1)
 								jcms.playerspawn_RespawnAs(ply, "spectator")
-								ply.jcms_lastDeathTime = CurTime()
+								ply:SetNWFloat("jcms_lastDeathTime", CurTime())
 
 								if jcms.util_IsPVP() then
 									ply.jcms_isNPC = true
@@ -1525,7 +1445,7 @@ end
 			end
 
 			ply:CreateRagdoll()
-			ply.jcms_lastDeathTime = ct
+			ply:SetNWFloat("jcms_lastDeathTime", ct)
 		end
 	end
 
@@ -1561,7 +1481,7 @@ end
 		
 		-- NOTE: Will not get called for evacuated players and players in-lobby.
 		if not jcms.director then
-			if not ply.jcms_lastDeathTime or CurTime() - ply.jcms_lastDeathTime > 5 then
+			if CurTime() - ply:GetNWFloat("jcms_lastDeathTime", 0) > 5 then
 				ply:Spawn()
 				if jcms.mapdata.valid then
 					jcms.playerspawn_Menu(ply)
@@ -1642,7 +1562,7 @@ end
 		ply:GodDisable()
 		if jcms.util_IsPVP() then		
 			ply.jcms_isNPC = true
-			jcms.giveCash(ply, 100)
+			jcms.giveCash(ply, 125)
 		end
 
 		ply:SetNWBool("jcms_ready", false)
@@ -2087,7 +2007,7 @@ end
 			end
 		end
 		
-		local bounty = npc.jcms_bounty or 0
+		local bounty = (npc.jcms_bounty or 0) * (IsValid(attacker) and attacker.jcms_bountyMul or 1)
 		
 		if bounty > 0 then
 			bounty = bounty * jcms.cvar_cash_mul_base:GetFloat()
@@ -3308,33 +3228,6 @@ end
 
 	--TODO: These should probably have a standardised set-up function at this point, it's mostly duplicate code here.
 
-	do 
-		local runProgFile = "mapsweepers/server/runprogress_" .. (game.SinglePlayer() and "solo" or "multiplayer") .. ".dat"
-		hook.Add("InitPostEntity", "jcms_RestorePreviousRun", function()
-			if file.Exists(runProgFile, "DATA") then
-				local dataTxt = file.Read(runProgFile, "DATA")
-				local dataTbl = util.JSONToTable(util.Decompress(dataTxt))
-
-				table.Merge(jcms.runprogress, dataTbl, true)
-				jcms.runprogress_UpdateAllPlayers()
-				game.GetWorld():SetNWInt("jcms_winstreak", jcms.runprogress.winstreak)
-				game.GetWorld():SetNWInt("jcms_difficulty", jcms.runprogress.difficulty)
-			end
-		end)
-
-		hook.Add("ShutDown", "jcms_SaveRunData", function()
-			if not jcms.fullyLoaded then return end
-
-			if jcms.director and not jcms.director.gameover then
-				jcms.runprogress_Reset()
-				--Resets our run if we're in a mission. Prevents save-scumming.
-			end
-
-			local dataStr = util.Compress(util.TableToJSON(jcms.runprogress))
-			file.Write(runProgFile, dataStr)
-		end)
-	end
-
 	do
 		local playerDataFile = "mapsweepers/server/playerData.dat"
 		hook.Add("InitPostEntity", "jcms_RestorePlayerData", function()
@@ -3395,7 +3288,6 @@ end
 -- // }}}
 
 -- // Post {{{
-
 	function jcms.RecolorAllDollies()
 		-- this is EXTREMELY important
 		for i, ent in ipairs(ents.GetAll()) do
@@ -3438,6 +3330,12 @@ end
 		end
 		for i, ent in ipairs(ents.FindByClass("prop_dynamic")) do 
 			clearIfSmall(ent)
+		end
+	end
+
+	function jcms.ClearWindows()
+		for i, ent in ipairs(ents.FindByClass("func_breakable_surf")) do 
+			ent:Remove()
 		end
 	end
 

@@ -570,6 +570,8 @@
 		end
 	end
 
+	local colorRad = Color(55,225,55)
+	local colorRadDark = Color(0,55,0)
 	function jcms.draw_HUDHealthbar()
 		local me = jcms.locPly
 		if not IsValid(me) then return end 
@@ -586,6 +588,7 @@
 			surface.SetAlphaMultiplier(1)
 
 			local bubbleshields = me:GetNWInt("jcms_shield", 0)
+			local antirad = me:GetNWInt("jcms_antirad", 0)
 			local healthWidth = ( me:GetMaxHealth() * 4 )
 			local armorWidth = ( me:GetMaxArmor() * 4 )
 			local addX = 64
@@ -713,6 +716,19 @@
 					for i=1, bubbleshields do
 						draw.SimpleText("⛊", "jcms_hud_medium", 124 + addX + offsetArmor + armorWidth - 34*(i-1), -48 - 12 - offsetArmor, jcms.color_bright_alt, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
 					end
+				render.OverrideBlend( false )
+			end
+
+			if antirad > 0 then 
+				local str = tostring(antirad) .. "s"
+
+				local colDark = antirad > 10 and colorRadDark or jcms.color_dark
+				local col = antirad > 10 and colorRad or jcms.color_alert
+
+				draw.SimpleText(str, "jcms_hud_medium", 124 + addX + armorWidth, -54 - 12, colDark, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
+
+				render.OverrideBlend( true, BLEND_SRC_ALPHA, BLEND_ONE, BLENDFUNC_ADD )
+					draw.SimpleText(str, "jcms_hud_medium", 124 + addX + armorWidth + offsetArmor/3, -54 - 12, col, TEXT_ALIGN_RIGHT, TEXT_ALIGN_BOTTOM)
 				render.OverrideBlend( false )
 			end
 		else
@@ -2766,6 +2782,12 @@
 			surface.SetDrawColor(0, 0, 0, 255*f2)
 			surface.DrawRect(-2,-2,jcms.scrW+4,jcms.scrH+4)
 		cam.End2D()
+
+		if not game.SinglePlayer() and not jcms.locPly:GetNWBool("jcms_evacuated") then 
+			jcms.setup3d2dCentral("top")
+				jcms.hud_SpectatorDraw_RespawnInfo()
+			cam.End3D2D()
+		end
 	end
 
 	function jcms.hud_SpectatorDraw_ChangeClass(col, colAlt) --TODO: Better visual integeration w/ npc hud
@@ -2796,6 +2818,56 @@
 				end
 			end
 		end
+	end
+
+	function jcms.hud_SpectatorDraw_RespawnInfo()
+		local me = jcms.locPly
+		local off = 4
+
+		-- // Cooldown timer {{{
+			local lastDeath = me:GetNWFloat("jcms_lastDeathTime", 0)
+			local respTime = math.max(math.Round(lastDeath + 22.5 - CurTime(), 2), 0) --TODO/NOTE: respawn is hardcoded here, that's not great. should ideally be a shared value somewhere.
+			local fTime = string.FormattedTime(respTime)
+			local tmr = string.format("%02d.%02d", fTime.s, fTime.ms)
+			draw.SimpleText(tmr, "jcms_hud_big", 0, 100, jcms.color_dark, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(tmr, "jcms_hud_big", 0, 100-off, jcms.color_bright, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		-- // }}}
+
+		-- // Respawn Queue {{{
+			local queuePos = me:GetNWInt("jcms_respawnQueuePos", 1)
+			local str = string.CardinalToOrdinal(queuePos) .. [=[ in line]=]
+
+			local queueCol1 = jcms.color_dark
+			local queueCol2 = queuePos > 1 and jcms.color_bright or jcms.color_alert
+
+			draw.SimpleText(str, "jcms_hud_medium", 0, 200, queueCol1, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+			draw.SimpleText(str, "jcms_hud_medium", 0, 200-off, queueCol2, TEXT_ALIGN_CENTER, TEXT_ALIGN_CENTER)
+		-- // }}}
+
+		-- // Decorators {{{
+			--x,y,w,h
+			--background
+				surface.SetDrawColor(jcms.color_dark)
+
+				surface.DrawRect(-(256 + 64)/2 + (256+128), 100, 256 + 64, 8)
+				surface.DrawRect(-(256 + 64)/2 - (256+128), 100, 256 + 64, 8)
+
+				--lower
+				surface.SetDrawColor(queueCol1)
+				surface.DrawRect(-256/2 + (256 + 10), 200, 256, 6)
+				surface.DrawRect(-256/2 - (256 + 10), 200, 256, 6)
+
+			--foreground
+				surface.SetDrawColor(jcms.color_bright)
+				--upper
+				surface.DrawRect(-(256 + 64)/2 + (256+128), 100-off, 256 + 64, 8)
+				surface.DrawRect(-(256 + 64)/2 - (256+128), 100-off, 256 + 64, 8)
+
+				--lower
+				surface.SetDrawColor(queueCol2)
+				surface.DrawRect(-256/2 + (256 + 10), 200-off, 256, 6)
+				surface.DrawRect(-256/2 - (256 + 10), 200-off, 256, 6)
+		-- // }}}
 	end
 
 	function jcms.hud_DrawDeathBlackout()

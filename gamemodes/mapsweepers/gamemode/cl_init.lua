@@ -29,7 +29,7 @@ include "_main/client/ui/cl_hud.lua"
 include "_main/client/ui/cl_hud_npc.lua"
 include "_main/sh_controls.lua"
 include "_main/client/cl_flashlights.lua"
-include "_main/client/cl_terminal.lua"
+include "terminals/cl_terminals.lua"
 include "_main/client/ui/cl_objectives.lua"
 include "_main/client/ui/cl_spawnmenu.lua"
 include "_main/client/ui/cl_offgame.lua"
@@ -1485,6 +1485,7 @@ end)
 	end
 
 	hook.Add("ChatText", "jcms_trackChatHistory", function(plyIndex, plyName, text, type)
+		if type == "joinleave" and jcms.aftergame then return end --Don't track join/Leave messages post-match.
 		jcms.chatHistory_Add(plyName, text, type)
 	end)
 

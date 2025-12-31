@@ -807,6 +807,47 @@
 				end
 			end
 		},
+
+		antirad = {
+			category = jcms.SPAWNCAT_SUPPLIES,
+			cost = 400,
+			cooldown = 5 * 60,
+			slotPos = 3,
+			pvpExclusive = true,
+			argparser = "orbital_fixed",
+			
+			func = function(ply, pos)
+				local teamInt = -1
+				local faction = "jcorp"
+				if IsValid(ply) then
+					teamInt = ply:GetNWInt("jcms_pvpTeam", -1)
+					faction = jcms.util_GetFactionNamePVP(ply)
+				end
+
+				local col
+				if faction == "mafia" then
+					col = Color(193, 255, 79)
+				else
+					col = Color(96, 255, 124)
+				end
+
+				local crate, flare = jcms.spawnmenu_Airdrop(pos, "jcms_restock", 2, "#jcms.antirad", col, ply)
+				crate:SetAmmoCashInside( 0 )
+				crate:SetHealthInside( 0 )
+				crate:SetAntiradInside( 60 )
+				crate:SetOwnerNickname( ply:Nick() )
+				crate:SetLocalAngularVelocity( AngleRand(48, 128) )
+				crate:SetMaterial("models/jcms/"..faction.."_crate_heal")
+				crate:SetColor(col)
+				crate:SetNWInt("jcms_pvpTeam", teamInt)
+
+				jcms.announcer_SpeakChance(0.4, jcms.ANNOUNCER_SUPPLIES)
+				jcms.net_NotifyGeneric(ply, jcms.NOTIFY_ORDERED, "#jcms.antirad")
+				if CPPI then
+					crate:CPPISetOwner( game.GetWorld() )
+				end
+			end
+		},
 		
 		-- Mines
 		mine_multiblast = {
@@ -1280,7 +1321,7 @@
 			end
 			
 			counts[class] = count
-			gunstats[class] = jcms.gunstats_GetExpensive(class)
+			gunstats[class] = jcms.gunstats_Get(class)
 			table.insert(classes, class)
 		end
 		
@@ -1338,7 +1379,7 @@
 			
 			consumedCash = consumedCash + math.ceil((jcms.weapon_prices[class] or 0)*gunPriceMul)
 			
-			local stats = jcms.gunstats_GetExpensive(class)
+			local stats = jcms.gunstats_Get(class)
 			
 			if stats then
 				local ammotype = stats.ammotype
@@ -1370,7 +1411,7 @@
 		local plyCash = ply:GetNWInt("jcms_cash", 0)
 		
 		if type(cost) == "number" and cost > 0 then
-			local stats = jcms.gunstats_GetExpensive(class)
+			local stats = jcms.gunstats_Get(class)
 
 			if ply:HasWeapon(class) then
 
@@ -1431,7 +1472,7 @@
 
 		if cost and cost > 0 then
 			cost = math.ceil(cost * jcms.util_GetLobbyWeaponCostMultiplier())
-			local stats = jcms.gunstats_GetExpensive(class)
+			local stats = jcms.gunstats_Get(class)
 
 			if ply.jcms_pendingLoadout[ class ] and ply.jcms_pendingLoadout[ class ] >= 1 then
 				
@@ -1481,7 +1522,7 @@
 					earnedBack = earnedBack + cost
 				end
 
-				local stats = jcms.gunstats_GetExpensive(class)
+				local stats = jcms.gunstats_Get(class)
 				if stats and stats.ammotype ~= "none" and (ply.jcms_pendingLoadout[ class ] > 1) then
 					earnedBack = earnedBack + jcms.gunstats_ExtraAmmoCostData(stats, count - (count == ply.jcms_pendingLoadout[ class ] and 1 or 0))
 				end
